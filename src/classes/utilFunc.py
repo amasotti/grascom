@@ -52,10 +52,9 @@ def fixed_dotProduct_matrix(n, d, z=0, target_matrix=None):
 
     # Initialize the matrix with the random uniform distribution
     M = torch.rand((n, d))
-    M = fortran_reshape(M, (n, d))  # Bring into Fortran-like order
 
     step0 = .1
-    tolerance = 1e-9
+    tolerance = 1e-7
     for i in range(1000000):
 
         # QUESTION: should I use np.matmul() here instead of "*"? MATLAB used
@@ -66,7 +65,7 @@ def fixed_dotProduct_matrix(n, d, z=0, target_matrix=None):
         step = min(actual_step, step0)
         M = M - step * inc
 
-        maxDiff = torch.max(torch.abs(M.conj().T @ M) - target_matrix)
+        maxDiff = torch.max(torch.abs(M.T @ M) - target_matrix)
         if maxDiff <= tolerance:
             print(f"dotProducts: Matrix found after {i} iterations")
             assert M.shape == (
@@ -99,6 +98,3 @@ def syllablePositionRoles(n_syl, n_pos, syl_dotP, pos_dotP):
             R[:, Rcol] = value
             Rcol += 1
     return R
-
-
-R = syllablePositionRoles(2, 4, 0, 0)
