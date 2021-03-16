@@ -5,6 +5,9 @@ Classes Roles, Fillers
 import torch
 from src.classes.utilFunc import fixed_dotProduct_matrix
 
+# Set seed for reproducibility
+torch.seed(123)
+
 
 class Roles(object):
     """Roles Class."""

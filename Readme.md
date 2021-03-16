@@ -6,6 +6,15 @@ _a cool description here_
 
 **disclaimer** : The project is a work in progress and there are for sure many parts that could be improved or present some bugs. Feel free to fork and use this project and open an issue if you find bugs or have some suggestions. Any help would be greatly appreciated.
 
+## Structure
+---
+
++ Roles: Since this network learns Allomorphy and thus process strings, the roles correspond to the positional roles of each sement in a string. At moment the grammar accepts 5 roles (for tokens up to 5 letters long). But this can easily be updated using the `read_from_Input` method in the `Bindings` class.
+
++ `data/inp.csv` : contains the training data. The first col (id) separates different inputs, same index = same word. The other columns give activation values for each filler in the word for each role in the grammar. The csv is read into the grammar using the `pandas` library.
+
+
+
 ## Requirements
 
 see `requirement.txt`

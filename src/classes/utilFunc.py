@@ -6,74 +6,56 @@ Collections of auxiliary functions
 """
 import torch
 import warnings
-
-
-def fortran_reshape(v, shape):
-    """Reshape in Fortran-like order"""
-    if len(v.shape) > 1:
-        v = v.transpose(1, 0).reshape(shape)
-    else:
-        v = v.reshape(shape)
-    return v
-
-# ------------------------------------------------------------------------------
+import numpy as np  # Just because Numpy has the "order='F'" option, then convert in tensor
 
 
 def is_symmetric(M, rtol=1e-06, atol=1e-08):
     """ Checks if a numpy tensor  is a symmetric matrix """
-    return torch.allclose(M, M.T, rtol=rtol, atol=atol)
+    return np.allclose(M, M.T, rtol=rtol, atol=atol)
 
 # ------------------------------------------------------------------------------
 
 
-def fixed_dotProduct_matrix(n, d, z=0, target_matrix=None):
-    """ Creates a matrix of dim (n,d) with a common pairwise dotproduct equal to z
+def fixed_dotProduct_matrix(n, d, z, target_matrix=None):
+    """Generate a Matrix of random vectors (the representations of our fillers and roles ) 
+        such that the pairwise similarity are close within a given tolerance 
+        to the numbers specified in z or build the matrix specified as 'target_matrix'.
 
-    Params:
-
-      N (int) : determines the number of rows in the final tensor
-      d (int) : determines the number of cols in the final tensor
-      z (int) or (float) : the value of the dotproduct of each pair of cols
-
-    Returns:
-
-      M (tensor) : a tensor matrix with n col and d rows, each pair has dot product equal to z
-
+        The vectors desired are THE COLUMNS of the returned matrix.
     """
-    if target_matrix is None:
-        target_matrix = z * torch.ones((n, n)) + (1 - z) * torch.eye(n)
+
+    if target_matrix is None:  # if a scalar is passed, build the corresponding symmetric matrix
+        target_matrix = (z * np.ones((n, n)) + (1 - z) * np.eye(n))
 
     # Sanity check
     if not is_symmetric(target_matrix):
-        raise ValueError("The target matrix should be symmetric!")
-    if (any(torch.diag(target_matrix) != 1)):
-        raise Exception(
-            "The elements on the main diagonal of DP_mat should all be equal to 1")
+        raise 'The target matrix should be symmetric! If A == B, B == A'
 
-    # Initialize the matrix with the random uniform distribution
-    M = torch.rand((n, d))
+    if np.any(np.diag(target_matrix) != 1):
+        raise 'The target matrix main diagonal should have only 1s (A == A)'
+
+    # generate d * n random numbers from the Uniform dist.
+    M = np.random.uniform(size=d * n)
+    # Reshape (d,n) -> the columns will be our vectors with nrows dimensions.
+    M = M.reshape(d, n, order='F')
+    print(f"First random Matrix: {M}")
 
     step0 = .1
-    tolerance = 1e-7
+    tol = 1e-6
     for i in range(1000000):
+        inc = (M.T @ M - target_matrix)
+        inc = np.dot(M, inc)
+        step = min(step0, .01 / abs(inc).max())
+        M -= step * inc
+        max_diff = np.max(np.abs(M.T @ M - target_matrix))
+        if max_diff <= tol:
+            print("Representations built after {i} attempts\n")
+            return torch.tensor(M)
 
-        # QUESTION: should I use np.matmul() here instead of "*"? MATLAB used
-        # matrix multiplication, but with elementwise multiplication, the target matrix is found much faster
-        # and has the desiderd property
-        inc = torch.matmul(M, torch.matmul(M.T, M) - target_matrix)
-        actual_step = .01 / torch.max(torch.abs(inc))
-        step = min(actual_step, step0)
-        M = M - step * inc
+    print(
+        "Desidered matrix not found after {i} attempts. Rerun the script or use the last found matrix!")
+    return torch.tensor(M)
 
-        maxDiff = torch.max(torch.abs(M.T @ M) - target_matrix)
-        if maxDiff <= tolerance:
-            print(f"dotProducts: Matrix found after {i} iterations")
-            assert M.shape == (
-                n, d), f"The found matrix has size {M.shape} but should have size {(d,n)}"
-            return M
-    warnings.warn(
-        f"After {i} iteration no matrix was found. the last calculated Matrix will be returned \nConsider re-running this script!")
-    return M
 
 # ------------------------------------------------------------------------------
 
