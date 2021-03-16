@@ -1,4 +1,11 @@
 argparse==1.4.0
 numpy==1.19.2
+itertools
+re
+numbers
+sys
+pandas
+collections
+matplotlib
 
 
