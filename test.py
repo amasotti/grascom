@@ -1,4 +1,4 @@
-# # Playground and testing
+# # # Playground and testing
 from src.classes.Grammar import Grammar
 from src.gsc.gsc_network import Net
 
@@ -14,3 +14,6 @@ G.update_Hcc(cons)
 
 N = Net(G)
 print('Done')
+
+
+# TODO: Check FORTRAN order for all arrays created via loop

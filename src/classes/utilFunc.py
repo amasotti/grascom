@@ -8,6 +8,15 @@ import torch
 import numpy as np  # Just because Numpy has the "order='F'" option, then convert in tensor
 
 
+def fortran_reshape(array, shape):
+    """At moment very sloppy... 
+    I've opened an issue on pytorch/pytorch, waiting for the devs
+    to support the fortran order in Pytorch"""
+    array = array.numpy()
+    array = array.reshape(shape, order="F")
+    return torch.tensor(array)
+
+
 def is_symmetric(M, rtol=1e-06, atol=1e-08):
     """ Checks if a numpy tensor  is a symmetric matrix """
     return torch.allclose(M, M.T, rtol=rtol, atol=atol)

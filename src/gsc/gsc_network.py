@@ -2,6 +2,7 @@
 The Gradient Symbolic Computation Network class
 
 """
+from src.classes.utilFunc import fortran_reshape
 import torch
 import math
 #import matplotlib.pyplot as plt
@@ -227,14 +228,14 @@ class Net(object):
             matrix multiplication
         """
         # flatten
-        harmonies = self.Hc.reshape((torch.numel(self.Hc), 1))
+        harmonies = fortran_reshape(self.Hc, (torch.numel(self.Hc), 1))
+        #harmonies = self.Hc.reshape((torch.numel(self.Hc), 1))
 
         # Initialize
         biases = torch.zeros((self.nSym, 1), dtype=torch.double)
 
         # Update
         for i in range(self.nSym):
-            # FIXME: Check that this column correspond to the col in MATLAB
             b_i = self.TP[:, i]
             update_value = (harmonies[i] * b_i) / torch.matmul(b_i.T, b_i)
             biases += update_value.reshape((self.nSym, 1))
@@ -250,7 +251,7 @@ class Net(object):
 
             #QUESTION: Why that 0.5 if i != j ? 
         """
-        harmonies = self.Hcc.reshape((self.nSym, self.nSym))
+        harmonies = fortran_reshape(self.Hcc, (self.nSym, self.nSym))
         W = torch.zeros((self.nSym, self.nSym), dtype=torch.double)
 
         # Update using the Hcc infos:
