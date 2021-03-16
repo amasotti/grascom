@@ -43,10 +43,8 @@ def fixed_dotProduct_matrix(n, d, z=0, target_matrix=None):
         raise 'The target matrix main diagonal should have only 1s (A == A)'
 
     # generate d * n random numbers from the Uniform dist.
-    M = np.random.uniform(size=d * n)
-    # Reshape (d,n) -> the columns will be our vectors with nrows dimensions.
-    M = M.reshape(d, n, order='F')
-    M = torch.tensor(M)
+    M = torch.rand((d, n))
+    M = fortran_reshape(M.flatten(), (d, n))
 
     step0 = .1
     tol = 1e-6

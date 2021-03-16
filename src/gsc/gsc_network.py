@@ -213,7 +213,7 @@ class Net(object):
         """
         # Approximate to Kronecker Product
         # TODO: Check that the dimension are right!
-        self.TP = torch.kron(self.R, self.F)
+        self.TP = torch.kron(self.R, self.F).double()
         # create the inverse if TP is a square matrix:
         # Use the Moore-Penrose pseudoinverse if TP is not square
         self.TPinv = torch.linalg.pinv(self.TP, hermitian=True)
