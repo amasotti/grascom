@@ -3,10 +3,10 @@ Classes Roles, Fillers
 
 """
 import torch
-from src.classes.utilFunc import fixed_dotProduct_matrix
+from src.classes.utilFunc import fixed_dotProduct_matrix, is_symmetric
 
 # Set seed for reproducibility
-torch.seed(123)
+torch.manual_seed(123)
 
 
 class Roles(object):
@@ -31,6 +31,9 @@ class Fillers(object):
 
         if fillerSimilarities is None:
             self.similarities = torch.eye(self.nF)
+        else:
+            self.similarities = fillerSimilarities
+
         self.F = self.fillersMatrix(self.similarities)
 
     def fillersMatrix(self, target_matrix):
@@ -53,6 +56,7 @@ class Bindings(object):
         self.Hc = torch.zeros((self.nF, self.nR), dtype=torch.float)
         self.Hcc = torch.zeros(
             (self.nF, self.nR, self.nF, self.nR), dtype=torch.float)
+        self.check_symmetry_hcc()
 
     def singleHarmony_constraints(self, constraints):
         """Update single Harmony constraints given a list of tuples.
@@ -103,4 +107,10 @@ class Bindings(object):
             self.Hcc[fillerIdx1, roleIdx1, fillerIdx2, roleIdx2] = harmony
             self.Hcc[fillerIdx2, roleIdx2, fillerIdx1, roleIdx1] = harmony
 
+        self.check_symmetry_hcc()
         return self.Hcc
+
+    def check_symmetry_hcc(self):
+        M = self.Hcc.reshape((self.nF * self.nR, -1))
+        assert is_symmetric(
+            M), "The Hcc Matrix should be symmetric at the top level!"

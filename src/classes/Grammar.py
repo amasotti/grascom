@@ -41,8 +41,9 @@ class Grammar(object):
 
 
 # ---------------- TESTING -----------------------------
+"""
 if __name__ == '__main__':
-    G = Grammar.read_Input("Antonio")
+    G = Grammar.read_Input("test-word")
     sCon = [("a/r0", 7), ("n/r0", -10)]
 
     constr = []
@@ -52,3 +53,4 @@ if __name__ == '__main__':
                 if j != k:
                     c = (f"{i}/{j}", f"{i}/{k}", -10)
                     constr.append(c)
+"""

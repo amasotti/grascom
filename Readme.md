@@ -67,6 +67,8 @@ The authors state that this formula
 
 I've left the formula as in the original lacking a better idea, but I would be glad if anyone could help to improve this.
 
+3. Move the tensors to CUDA to improve speed.
+
 #### Next Project
 
 I've just started an attempt to implement the same GSC as R package. By now the project proceeds slowly, mostly due to my unsufficient knowledges of the details of OOP in R. If anyone wants to contribute, just mail me. I would be glad to share this task!

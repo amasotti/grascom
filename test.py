@@ -1,18 +1,16 @@
 # # Playground and testing
-# from src.classes.Grammar import Grammar
-# from src.gsc.gsc_network import Net
-# fillers = ["bh", "b", "u", "d", "dh"]
-# roles = ["ons1", "ons2", "nuc", "coda1", "coda2"]
-
-# G = Grammar(fillers, roles)
-# # scons = [("bh/r1", -2), ("b/r1", -2), ("d/r3", 1), ("dh/r3", -3)]
-# # cons = [("bh/r1", "b/r1", -10), ("d/r3", "dh/r3", -10),
-# #         ("bh/r1", "dh/r3", -10)]
+from src.classes.Grammar import Grammar
+from src.gsc.gsc_network import Net
 
 
-# N = Net(G)
-from src.classes.utilFunc import fixed_dotProduct_matrix
+fillers = ["bh", "b", "u", "d", "dh", "c", "p"]
+roles = ["s1", "s2", "s3", "s4", "s5"]
 
+G = Grammar(fillers, roles)
+# scons = [("bh/r1", -2), ("b/r1", -2), ("d/r3", 1), ("dh/r3", -3)]
+cons = [("bh/s1", "b/s1", -10), ("d/s3", "dh/s3", -10),
+        ("bh/s1", "dh/s3", -10)]
+G.update_Hcc(cons)
 
-b = fixed_dotProduct_matrix(2, 3, 0)
-print(b)
+N = Net(G)
+print('Done')
