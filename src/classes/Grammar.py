@@ -14,7 +14,6 @@ class Grammar(object):
         self.fillers = Fillers(fillersList, fillerSimilarities)
         self.roles = Roles(rolesList)
         self.bind = Bindings(self.fillers, self.roles)
-
         self.Hc = self.bind.Hc
         self.Hcc = self.bind.Hcc
 
@@ -41,6 +40,7 @@ class Grammar(object):
         return cls(fillers, roles)
 
 
+# ---------------- TESTING -----------------------------
 if __name__ == '__main__':
     G = Grammar.read_Input("Antonio")
     sCon = [("a/r0", 7), ("n/r0", -10)]

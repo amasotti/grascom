@@ -28,11 +28,11 @@ class Fillers(object):
 
         if fillerSimilarities is None:
             self.similarities = torch.eye(self.nF)
-        self.F = self.fillersMatrix(dp=self.similarities)
+        self.F = self.fillersMatrix(self.similarities)
 
-    def fillersMatrix(self):
+    def fillersMatrix(self, target_matrix):
         print(f"Buil Filler Matrix")
-        return fixed_dotProduct_matrix(self.nF, self.nF, target_matrix=self.similarities)
+        return fixed_dotProduct_matrix(self.nF, self.nF, target_matrix=target_matrix)
 
 
 class Bindings(object):
