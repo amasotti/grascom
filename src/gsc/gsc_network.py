@@ -173,10 +173,12 @@ class Net(object):
         # Generate Encodings for Fillers and Roles
 
         # Initialize weights and biases
-        self.Wc = torch.zeros((self.nSym, self.nSym), dtype=torch.double)
-        self.Bc = torch.zeros(self.nSym, dtype=torch.double)
+        # TODO: Change below, the set_weights and set_biases. These should now give the conceptual
+        # matrices
+        self.W = self.compute_neural_weights()
+        self.B = self.compute_neural_biases()
 
-        # Activation and Inputs for the RNN
+        # Activation and Inputs for the RNN-like network
         self.activationC = torch.zeros(
             self.nSym, dtype=torch.double)
         self.activationC_prev = torch.zeros(
@@ -209,14 +211,63 @@ class Net(object):
             and the other way round 
         """
         # Approximate to Kronecker Product
+        # TODO: Check that the dimension are right!
         self.TP = torch.kron(self.R, self.F)
         # create the inverse if TP is a square matrix:
         # Use the Moore-Penrose pseudoinverse if TP is not square
         self.TPinv = torch.linalg.pinv(self.TP, hermitian=True)
         self.Gc = torch.mm(self.TPinv.T, self.TP)
 
+    def compute_neural_biases(self):
+        """Compute the Biases Matrix for the Neural space.
+
+            This will be derived from the Harmonies specified in self.Hc
+            (the single constituent Harmony) and will then be transformed
+            into the B matrix for the Constituent space through simple 
+            matrix multiplication
+        """
+        # flatten
+        harmonies = self.Hc.reshape((torch.numel(self.Hc), 1))
+
+        # Initialize
+        biases = torch.zeros((self.nSym, 1), dtype=torch.double)
+
+        # Update
+        for i in range(self.nSym):
+            # FIXME: Check that this column correspond to the col in MATLAB
+            b_i = self.TP[:, i]
+            update_value = (harmonies[i] * b_i) / torch.matmul(b_i.T, b_i)
+            biases += update_value.reshape((self.nSym, 1))
+        return biases
+
+    def compute_neural_weights(self):
+        """Compute the W Matrix for the Neural space.
+
+            This will be derived from the Harmonies specified in self.Hcc
+            (the pairwise constituent Harmony) and will then be transformed
+            into the W matrix for the Constituent space through simple 
+            matrix multiplication
+
+            #QUESTION: Why that 0.5 if i != j ? 
+        """
+        harmonies = self.Hcc.reshape((self.nSym, self.nSym))
+        W = torch.zeros((self.nSym, self.nSym), dtype=torch.double)
+
+        # Update using the Hcc infos:
+        for i in range(self.nSym):
+            w_i = self.TP[:, i]  # take the i-th filler
+            for j in range(i+1):  # just operate in the lower triangle, the rest is symmetric
+                w_j = self.TP[:, j]
+                if i == j:
+                    W = W + harmonies[i, j] * (torch.matmul(w_i, w_j.T) + torch.matmul(
+                        w_j, w_i.T)) / (torch.matmul(w_i.T, w_j)*torch.matmul(w_j.T, w_i))
+                else:
+                    W = W + .5 * harmonies[i, j] * (torch.matmul(w_i, w_j.T) + torch.matmul(
+                        w_j, w_i.T)) / (torch.matmul(w_i.T, w_j)*torch.matmul(w_j.T, w_i))
+        return W
+
     def _set_weights(self):
-        self.W = torch.mm(self.TPinv.T, self.Wc).mm(self.TPinv)
+        self.Wc = torch.mm(self.TP.T, self.W).mm(self.TP)
 
     def _set_bias(self):
         """Neural Bias Matrix from C-biases
@@ -227,7 +278,7 @@ class Net(object):
         """
         # Alternative
         # self.B = self.TPinv.T.matmul(self.Bc)
-        self.B = self.TPinv.T.inner(self.Bc)
+        self.Bc = self.TP.T.matmul(self.B)
 
     def _set_quantList(self):
         """Quantization list"""
