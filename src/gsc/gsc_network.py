@@ -1,8 +1,12 @@
 """
 The Gradient Symbolic Computation Network class
 
+__date__ : Februar 201
+__author__ : A. Masotti (on the model of LDNet 1.5)
+
 """
 from src.classes.utilFunc import fortran_reshape
+from src.classes.Bowl import Bowl
 import torch
 import numpy as np
 import math
@@ -16,7 +20,8 @@ torch.manual_seed(123)
 class Net(object):
     """The GSC Network"""
 
-    def __init__(self, grammar):
+    def __init__(self, grammar, extData_path="data/inp_pandas.csv"):
+
         # The Harmonic Grammar
         self.grammar = grammar
         self.R = self.grammar.bind.R
@@ -47,6 +52,7 @@ class Net(object):
 
         # Preprare the network to be run
         self.stimuli = None
+        self.extData_path = extData_path
         self.setup_net()
 
     # -----------------------  GENERAL SETTINGS ------------------------------
@@ -68,7 +74,7 @@ class Net(object):
         self.settings["TInit"] = -1
         self.settings["TMin"] = 0
         self.settings["TdecayRate"] = 0.05
-        self.settings["lambdaInit"] = 0.011387
+        self.settings["lambdaInit"] = 0.11
         self.settings["lambdaMin"] = 0.01
         self.settings["lambdaDecayRate"] = 0.75
         self.settings["maxSteps"] = 60000
@@ -98,7 +104,7 @@ class Net(object):
         self.vars['ema_tau'] = -1 / math.log(self.vars['ema_factor'])
 
         # Temperature params
-        self.vars['T_init'] = 1e-3
+        self.vars['T_init'] = -1
         self.vars['T_min'] = 0.
         self.vars['T_decay_rate'] = 1e-3
         # Bowl params
@@ -123,39 +129,6 @@ class Net(object):
     def reset(self):
         pass  # TODO:
 
-    # ----------------------- EXTERNAL INPUT  ----------------------------
-
-    def readInput(self, fp="data/inp_pandas.csv"):
-        """Read external input.
-
-        Inputs are provided in a csv table with header:
-        id,filler,r1,r2,....,rn
-
-        The id marks the input as whole: many lines with the same ID count as 1 input
-
-        requires Pandas
-        """
-        # Read dataframe
-        inputs = pd.read_csv(fp, sep=",")
-
-        self.nStimuli = len(inputs['id'].unique())
-        # Initialize stimuli tensor
-        self.stimuli = torch.zeros(
-            (self.nStimuli, self.grammar.bind.nF, self.grammar.bind.nR))
-
-        # Loop over the single inputs as whole
-        for idx, i in enumerate(inputs['id'].unique()):
-            inp_string = ""
-            stimulus = inputs[inputs.id == i].to_numpy()[:, 1:]
-
-            # Loop over the fillers in a given input
-            for filler in stimulus:
-                fidx = self.grammar.bind.fillers.index(filler[0])
-                inp_string += filler[0] + "-"
-                for roledix in range(self.grammar.bind.nR):
-                    self.stimuli[idx, fidx, roledix] = filler[roledix+1]
-            print(f"Input processed: {inp_string[:-1]}\n")
-
     # -----------------------  RETRIEVE BINDINGS -------------------------
     def find_bindings(self, bindName):
         """Retrieve the index of a specific binding"""
@@ -177,30 +150,6 @@ class Net(object):
             return self.filler2index[fillerName]
         except KeyError:
             raise f"The Filler {fillerName} is not in the general list... check your input file!"
-
-    # -----------------------  SETUP ------------------------------------
-    # -----------------------  ENCODINGS --------------------------------
-    def _set_encodings(self):
-        """Set default variables to default values"""
-        self.encodings = dict()
-        # Similarity between fillers / roles
-        self.encodings['dotP_fillers'] = 0.0
-        self.encodings['dotP_roles'] = 0.0
-
-        self.encodings['coord_fillers'] = 'local'
-        self.encodings['coord_roles'] = 'local'
-        self.encodings['dim_fillers'] = None
-        self.encodings['dim_roles'] = None
-        self.encodings['fillers_names'] = list(self.filler2index.keys())
-        self.encodings['roles_names'] = list(self.role2index.keys())
-        self.encodings['FillerSimilarities'] = self.fillers.similarities
-
-    def update_encodings(self, new_encodings):
-        for key, value in new_encodings.items():
-            if key in self.encodings:
-                self.encodings[key] = value
-            else:
-                print("WARNING: Cannot update a non-existing in Net.encodings!")
 
     # ----------------------- SETUP ROUTINE ------------------------------------
 
@@ -247,9 +196,24 @@ class Net(object):
         # Calculate the recommended Lambda and Temp values:
         self.check_Q_T_lambda()
 
+        # Calculate the weights and biases for the Bowl:
+        self.Bowl_bC, self.Bowl_bS = self.bowl.set_biases()
+        self.Bowl_WC, self.Bowl_WS = self.bowl.set_weights()
+
+        # Add the bowl weights to the Harmoniy weights
+        self.B += self.Bowl_bS
+        self.Bc += self.Bowl_bC
+        self.W += self.Bowl_WS
+        self.Wc += self.Bowl_WS
+
+        # Initialize states
+        self.initialize_state()
+
         # Log default parameters
         self.logger(default_settings="#"*25 + " DEFAULT SETTINGS" + "#"*25)
         self.logger(default_settings=self.__dict__)
+        self.logger(bowl="#"*25 + " BOWL PARAMETER" + "#"*25)
+        self.logger(bowl=self.bowl.__dict__)
 
     # ---------------------- MATRIX FACTORY --------------------
     @ staticmethod
@@ -459,8 +423,47 @@ class Net(object):
         T = (self.settings["tgtStd"] ** 2) * \
             (self.vars['bowl_strength'] - max_eigvalue)
         return T
+    # ---------------------- STATES AND INPUTS --------------------
+
+    def initialize_state(self):
+        """Initialize network states and load external inputs"""
+
+    # ----------------------- EXTERNAL INPUT  ----------------------------
+
+    def readInput(self):
+        """Read external input.
+
+        Inputs are provided in a csv table with header:
+        id,filler,r1,r2,....,rn
+
+        The id marks the input as whole: many lines with the same ID count as 1 input
+
+        requires Pandas
+        """
+        fp = self.extData_path
+        # Read dataframe
+        inputs = pd.read_csv(fp, sep=",")
+
+        self.nStimuli = len(inputs['id'].unique())
+        # Initialize stimuli tensor
+        self.stimuli = torch.zeros(
+            (self.nStimuli, self.grammar.bind.nF, self.grammar.bind.nR))
+
+        # Loop over the single inputs as whole
+        for idx, i in enumerate(inputs['id'].unique()):
+            inp_string = ""
+            stimulus = inputs[inputs.id == i].to_numpy()[:, 1:]
+
+            # Loop over the fillers in a given input
+            for filler in stimulus:
+                fidx = self.grammar.bind.fillers.index(filler[0])
+                inp_string += filler[0] + "-"
+                for roledix in range(self.grammar.bind.nR):
+                    self.stimuli[idx, fidx, roledix] = filler[roledix+1]
+            print(f"Input processed: {inp_string[:-1]}\n")
 
     # ---------------------- UPDATE WEIGHT AND BIASES --------------------
+
     def set_singleWeight(self, bind1, bind2, weight, symmetric=True):
         idx1 = self.find_bindings(bind1)
         idx2 = self.find_bindings(bind2)
@@ -545,61 +548,3 @@ class Net(object):
 
     def __repr__(self):
         return "GSC Network"
-
-
-class Bowl(object):
-    def __init__(self, GSCNet):
-        self.Net = GSCNet
-        self.center = self.Net.vars['bowl_center'] * \
-            torch.ones(self.Net.nSym, dtype=torch.double)
-        #self.strength = self.recommend_strength()
-        self.strength = self.recommended_strength_Matlab()
-        print(
-            f"recommended pyton: {self.recommend_strength()}\nRecommended Matlab: {self.strength}")
-
-    def recommend_strength(self):
-        """Calculate the recommended strength for the Bowl.
-
-        This value depends on the external input and will be used either to set the strength of the bowl
-        or to check that the chosen values allows the training to converge.
-
-        This value is crucial since the final weight matrix should be negative-definite.
-        This value is exactly what ensures that.
-
-        """
-        eigenvalues = torch.linalg.eigvalsh(self.Net.Wc)
-        largest_eigval = torch.max(eigenvalues)
-
-        if torch.sum(self.center.sum()) > 0:
-            if self.Net.nSym == 1:
-                beta1 = -(self.Net.Bc + self.Net.externalInpC) / self.center
-                beta2 = (self.Net.Bc + self.Net.externalInpC +
-                         largest_eigval) / (1-self.center)
-            else:
-                beta1 = torch.min(
-                    (self.Net.Bc + self.Net.externalInpC) / self.center) * -1
-                beta2 = torch.max(
-                    (self.Net.Bc + self.Net.externalInpC + largest_eigval) / (1 - self.center))
-                value = max(largest_eigval, beta1, beta2)
-        else:
-            value = largest_eigval
-
-        return value
-
-    def __repr__(self):
-        return f"Bowl object with strength {self.strength} and center {self.center}"
-
-    def recommended_strength_Matlab(self):
-        """The Matlab version of the function to calculate the recommended Q value"""
-
-        eigMax = torch.max(torch.linalg.eigvalsh(self.Net.Wc))
-        q_nd = max(0, eigMax)
-
-        beta_min = -(torch.min(self.Net.Bc) -
-                     self.Net.settings['maxInp'])/self.Net.vars['bowl_center']
-        beta_max = torch.max(self.Net.Bc) + self.Net.settings['maxInp']
-        beta_max = (beta_max + eigMax)/(1 - self.Net.vars['bowl_center'])
-
-        q_rec = max([beta_min, beta_max, q_nd])
-
-        return q_rec
