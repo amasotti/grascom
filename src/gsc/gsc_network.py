@@ -10,6 +10,7 @@ from src.classes.Bowl import Bowl
 import torch
 import numpy as np
 import math
+from tqdm import tqdm
 #import matplotlib.pyplot as plt
 #import seaborn
 import pandas as pd
@@ -183,7 +184,6 @@ class Net(object):
         # Construct weights and biase matrices for the Neural space
         self._set_weights()
         self._set_bias()
-        self._set_quantList()
         self.debug_copies()
 
         # Bowl
@@ -201,10 +201,7 @@ class Net(object):
         self.Bowl_WC, self.Bowl_WS = self.bowl.set_weights()
 
         # Add the bowl weights to the Harmoniy weights
-        self.B += self.Bowl_bS
-        self.Bc += self.Bowl_bC
-        self.W += self.Bowl_WS
-        self.Wc += self.Bowl_WS
+        self.merge_bowl()
 
         # Initialize states
         self.initialize_state()
@@ -326,6 +323,13 @@ class Net(object):
         # self.B = self.TPinv.T.matmul(self.Bc)
         self.Bc = self.TP.T.matmul(self.B)
 
+    def merge_bowl(self):
+        """Add bowl biases and weights to the Harmony biases and weights."""
+        self.B += self.Bowl_bS
+        self.Bc += self.Bowl_bC
+        self.W += self.Bowl_WS
+        self.Wc += self.Bowl_WS
+
     def debug_copies(self):
         """Create debug copies of the initialized matrices
         #TODO: Why? Can we delete this?
@@ -335,13 +339,105 @@ class Net(object):
         self.W_debug = self.W.clone().detach()
         self.Wc_debug = self.Wc.clone().detach()
 
-    def _set_quantList(self):
-        """Quantization list"""
-        self.quantList = []
-        for _, index in self.role2index.items():
-            self.quantList.append(self.R[:, index])
+    # ------------------ LOTKA VOLTERRA MATRICES ------------------------------------
+    # Probably it'd be better to create a separate class for the LV Dynamics #TODO:
 
-    # ------------------RECOMMENDED VALUES FOR Q, L, T ------------------
+    def LV_Matrices(self):
+        """Initialize the Lotka-Volterra Dynamics
+            and its weights
+        """
+        self.LV_inhM = self.LotkaVolterra_InhibitMatrix()  # (nF, nF)
+        self.LV_c, self.LV_s = self.LotkaVolterra_Dynamics()  # (nS, 1)
+        # TODO: The LV weights are incredibly slow...
+        self.LV_W = self.LotkaVolterra_Weights2()
+
+    def LotkaVolterra_InhibitMatrix(self):
+        """Create the Lotka Volterra Matrix in the C-Space
+
+        This is an inhibitory matrix with 0 on the main diagonal and
+        -2 everywhere else.
+
+        """
+        LV = -2 * (torch.ones(len(self.filler2index),
+                              len(self.filler2index)) - torch.eye(len(self.filler2index)))
+        LV = LV.double()
+        return LV
+
+    def LotkaVolterra_Dynamics(self):
+        """Lotka Volterra matrices in the C- and S-space
+
+        """
+        LV_c = self.toConceptual(self.state)  # (nF, nR)
+        LV_c = LV_c.mul(1 - LV_c + self.LV_inhM.matmul(LV_c))
+        LV_s = self.toNeural(LV_c)
+
+        return LV_c, LV_s
+
+    def LotkaVolterra_Weights(self):
+        """Lotka-Volterra Weights.
+
+        Params:
+        nS = the dimension of the s-Space (nRoles * nFillers)
+        nF = the number of Fillers
+        TP = the Tensor Product Matrix
+        TPinv = the inverse matrix of TP
+
+        Return:
+        ------------------
+        W : the matrix of Weights for the Lotka-Volterra space
+
+        # ACHTUNG! : The following function is an O(nS^5) algorithm!!!
+        There is probably a more efficient way to implement this!
+        """
+
+        # Initialize the 3D Array
+        W = torch.zeros((self.nSym, self.nSym, self.nSym)).double()
+        for k in tqdm(range(self.nSym), desc="Calculate LV Weights", total=self.nSym):
+            for p in range(self.nSym):
+                for n in range(self.nSym):
+                    for i in range(self.nSym):
+                        check_i = np.floor(i/len(self.filler2index))
+                        for j in range(self.nSym):
+                            check_j = np.floor(j/len(self.filler2index))
+                            if check_i == check_j:
+                                delta = 1 if i == j else 0
+                                W[n, p, k] += self.TP[i, k] * self.TPinv[p,
+                                                                         i] * self.TPinv[n, j] * (delta-2)
+        return W
+
+    def LotkaVolterra_Weights2(self):
+        """Lotka-Volterra Weights.
+
+        Params:
+        nS = the dimension of the s-Space (nRoles * nFillers)
+        nF = the number of Fillers
+        TP = the Tensor Product Matrix
+        TPinv = the inverse matrix of TP
+
+        Return:
+        ------------------
+        W : the matrix of Weights for the Lotka-Volterra space
+
+        #FIXME: Improved by delimiting the range where we now the floor division for i and j 
+        will be equal. Still very slow. 
+        """
+
+        # Initialize the 3D Array
+        W = torch.zeros((self.nSym, self.nSym, self.nSym)).double()
+        for k in tqdm(range(self.nSym), desc="Calculate LV Weights", total=self.nSym):
+            for p in range(self.nSym):
+                for n in range(self.nSym):
+                    for r in range(0, self.grammar.nR):
+                        rng = np.array([0, 7]) + (r * self.grammar.nF)
+                        for i in range(rng[0], rng[1]):
+                            for j in range(rng[0], rng[1]):
+                                delta = 1 if i == j else 0
+                                W[n, p, k] += self.TP[i, k] * \
+                                    self.TPinv[p, i] * \
+                                    self.TPinv[n, j] * (delta-2)
+        return W
+
+    # ------------------RECOMMENDED VALUES FOR Q, L, T ------------------------------------
 
     def check_Q_T_lambda(self):
         """Check the bowl parameters."""
@@ -427,6 +523,13 @@ class Net(object):
 
     def initialize_state(self):
         """Initialize network states and load external inputs"""
+        self.state = self.initializer((self.nSym, 1))
+        self.inp_s = self.initializer((self.nSym, 1))
+        self.inp_c = self.initializer((self.nSym, 1))
+        self.readInput()
+
+        # Initialize Lotka Volterra
+        self.LV_Matrices()
 
     # ----------------------- EXTERNAL INPUT  ----------------------------
 
@@ -456,7 +559,7 @@ class Net(object):
 
             # Loop over the fillers in a given input
             for filler in stimulus:
-                fidx = self.grammar.bind.fillers.index(filler[0])
+                fidx = self.filler2index[filler[0]]
                 inp_string += filler[0] + "-"
                 for roledix in range(self.grammar.bind.nR):
                     self.stimuli[idx, fidx, roledix] = filler[roledix+1]
@@ -485,13 +588,14 @@ class Net(object):
     # ----------------------- CHANGE OF BASIS  ---------------------------
 
     def toNeural(self, matrix=None):
-        """Transform Conceptual vectors into Neural vectors"""
+        """Transform Conceptual vectors into Neural vectors
+        The dimension should be (nSym, 1)
+        """
         if matrix is None:
             matrix = self.activationC
-        if len(matrix.shape) > 1:
-            return torch.mm(self.TP, matrix)
-        else:
-            return torch.matmul(self.TP, matrix)
+
+        matrix = fortran_reshape(matrix, (matrix.numel(), 1))
+        return torch.matmul(self.TP, matrix)
 
     def toConceptual(self, matrix=None):
         """Transform Neural vectors into local vectors."""
@@ -499,9 +603,11 @@ class Net(object):
         if matrix is None:
             matrix = self.activation
         if len(matrix.shape) > 1:
-            return torch.mm(self.TPinv, matrix)
+            C = torch.mm(self.TPinv, matrix)
         else:
-            return torch.matmul(self.TPinv, matrix)
+            C = torch.matmul(self.TPinv, matrix)
+        C = fortran_reshape(C, (self.grammar.nF, self.grammar.nR))
+        return C
 
     # -----------------------  TRAIN ------------------------------------
 

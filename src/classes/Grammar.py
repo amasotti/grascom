@@ -6,7 +6,6 @@ constraints
 """
 from pandas.core.base import DataError
 from src.classes.bindings import Fillers, Roles, Bindings
-from src.gsc.gsc_network import Net
 from src.classes.utilFunc import is_symmetric
 import torch
 
@@ -22,8 +21,8 @@ class Grammar(object):
         self.bind = Bindings(self.fillers, self.roles)
 
         # Dimensions
-        self.nF = len(self.fillers)
-        self.nR = len(self.roles)
+        self.nF = len(self.fillers.filler2index)
+        self.nR = len(self.roles.role2index)
         self.nS = self.nF * self.nR
 
         # Single constituent Harmony - Initialize as zero (all const have the same Harmony)

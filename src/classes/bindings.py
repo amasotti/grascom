@@ -52,9 +52,11 @@ class Fillers(object):
     """
 
     def __init__(self, fillers, fillerSimilarities=None, emptyFiller="#"):
+
         self.fillersNames = fillers
+        # Add the padding element
+        self.fillersNames.append(emptyFiller)
         self.nF = len(self.fillersNames)
-        self.emptyFiller = emptyFiller
 
         if fillerSimilarities is None:
             self.similarities = torch.eye(self.nF)
@@ -76,7 +78,7 @@ class Fillers(object):
                 filler2index[filler] = len(filler2index)
 
         # Add padding element
-        filler2index[self.emptyFiller] = len(filler2index)
+        #filler2index[self.emptyFiller] = len(filler2index)
 
         index2filler = {i: f for f, i in filler2index.items()}
         return filler2index, index2filler

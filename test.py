@@ -1,7 +1,7 @@
 # # # Playground and testing
 from src.classes.Grammar import Grammar
+
 from src.gsc.gsc_network import Net
-import torch
 
 fillers = ["bh", "b", "u", "d", "dh", "p"]
 roles = ["s1", "s2", "s3", "s4", "s5"]
@@ -13,6 +13,3 @@ cons = [("bh/s1", "b/s1", -2), ("d/s3", "dh/s3", -1),
 G.update_Hcc(cons)
 
 N = Net(G)
-
-
-print('Done')
