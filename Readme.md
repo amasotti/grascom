@@ -2,6 +2,12 @@
 
 _a cool description here_
 
+The main inspiration for this project comes from the MATLAB program LDNet (v. 1.5). The actual version is however not a simple translation in Python. Main differences of grascom compared with LDNet:
+
+- It uses the Pytorch library to deal with high-dimensional tensors
+- It lacks the sequential mode
+- It's modified (in part heavily) to deal with allomorphy in Sanskrit, whereas LDNet dealt with Tree Structures and Twister simulations.
+
 ---
 
 **disclaimer** : The project is a work in progress and there are for sure many parts that could be improved or present some bugs. Feel free to fork and use this project and open an issue if you find bugs or have some suggestions. Any help would be greatly appreciated.

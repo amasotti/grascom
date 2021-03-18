@@ -4,6 +4,7 @@ The Gradient Symbolic Computation Network class
 """
 from src.classes.utilFunc import fortran_reshape
 import torch
+import numpy as np
 import math
 #import matplotlib.pyplot as plt
 #import seaborn
@@ -76,6 +77,7 @@ class Net(object):
         self.settings["diary"] = False
         self.settings["printInterval"] = 3000
         self.settings["saveFile"] = 'Simulations/grassman.txt'
+        self.settings["summary_file"] = "data/summary.txt"
         mean = torch.eye(self.grammar.bind.nF,
                          self.grammar.bind.nR)/self.grammar.bind.nF
         self.settings["initStateMean"] = mean
@@ -100,7 +102,7 @@ class Net(object):
         self.vars['T_min'] = 0.
         self.vars['T_decay_rate'] = 1e-3
         # Bowl params
-        self.vars['q_init'] = 0.
+        self.vars['q_init'] = 2  # initial strength for the bowl
         self.vars['q_max'] = 200.
         self.vars['q_rate'] = 10.
         self.vars['c'] = 0.5
@@ -210,8 +212,6 @@ class Net(object):
         # Generate Encodings for Fillers and Roles
 
         # Initialize weights and biases
-        # TODO: Change below, the set_weights and set_biases. These should now give the conceptual
-        # matrices
         self.W = self.compute_neural_weights()
         self.B = self.compute_neural_biases()
 
@@ -235,6 +235,7 @@ class Net(object):
         self._set_weights()
         self._set_bias()
         self._set_quantList()
+        self.debug_copies()
 
         # Bowl
         self.bowl = Bowl(self)
@@ -243,32 +244,74 @@ class Net(object):
             self.vars['beta_min_offset']
         self.vars['zeta_bowl'] = self.toNeural(self.vars['bowl_center'])
 
+        # Calculate the recommended Lambda and Temp values:
+        self.check_Q_T_lambda()
+
+        # Log default parameters
+        self.logger(default_settings="#"*25 + " DEFAULT SETTINGS" + "#"*25)
+        self.logger(default_settings=self.__dict__)
+
+    # ---------------------- MATRIX FACTORY --------------------
+    @ staticmethod
+    def initializer(shape, dist="zero"):
+        """Matrix initializer.
+
+        Given a shape, it returns a matrix initialized with all zeros (default)
+        or with values taken from a random distribution.
+
+        Accepted are:
+            - zeros
+            - ones
+            - identity matrix
+            - random uniform
+            - log normal
+            - gamma
+        """
+        if dist == "zero":
+            M = torch.zeros(shape, dtype=torch.double)
+        elif dist == "one":
+            M = torch.ones(shape, dtype=torch.double)
+        elif dist == "id":
+            M = torch.eye(shape, dtype=torch.double)
+        elif dist == "uniform":
+            M = torch.rand(shape, dtype=torch.double)
+        elif dist == "log_normal":
+            m = torch.distributions.log_normal.LogNormal(
+                0, 1)
+            M = m.sample(shape).double()
+        elif dist == "gamma":
+            m = torch.distributions.gamma.Gamma(1, 1)
+            M = m.sample(shape).double()
+        else:
+            print("The distribution you gave is unknown... Matrix initialized with zeros")
+        return M
+
     def generateTP(self):
         """Generate the Matrices for the change-of-basis from Neural to Conceptual
             and the other way round 
         """
         # Approximate to Kronecker Product
-        # TODO: Check that the dimension are right!
         self.TP = torch.kron(self.R, self.F).double()
         # create the inverse if TP is a square matrix:
         # Use the Moore-Penrose pseudoinverse if TP is not square
         self.TPinv = torch.linalg.pinv(self.TP, hermitian=True)
         self.Gc = torch.mm(self.TPinv.T, self.TP)
 
-    def compute_neural_biases(self):
+    def compute_neural_biases(self, dist="zero"):
         """Compute the Biases Matrix for the Neural space.
 
             This will be derived from the Harmonies specified in self.Hc
             (the single constituent Harmony) and will then be transformed
             into the B matrix for the Constituent space through simple 
             matrix multiplication
+
         """
         # flatten
         harmonies = fortran_reshape(self.Hc, (torch.numel(self.Hc), 1))
         #harmonies = self.Hc.reshape((torch.numel(self.Hc), 1))
 
         # Initialize
-        biases = torch.zeros((self.nSym, 1), dtype=torch.double)
+        biases = self.initializer((self.nSym, 1), dist=dist)
 
         # Update
         for i in range(self.nSym):
@@ -277,7 +320,7 @@ class Net(object):
             biases += update_value.reshape((self.nSym, 1))
         return biases
 
-    def compute_neural_weights(self):
+    def compute_neural_weights(self, dist="zero"):
         """Compute the W Matrix for the Neural space.
 
             This will be derived from the Harmonies specified in self.Hcc
@@ -285,29 +328,31 @@ class Net(object):
             into the W matrix for the Constituent space through simple 
             matrix multiplication
 
-            #QUESTION: Why that 0.5 if i != j ? 
+            #0.5 in the case i == j (because of the symmetry)
         """
+        # TODO: Should this begin with zeros? Or can we initialize the matrices with random dist?
         harmonies = fortran_reshape(self.Hcc, (self.nSym, self.nSym))
-        W = torch.zeros((self.nSym, self.nSym), dtype=torch.double)
+        W = self.initializer((self.nSym, self.nSym), dist=dist)
 
         # Update using the Hcc infos:
         for i in range(self.nSym):
-            w_i = self.TP[:, i]  # take the i-th filler
+            w_i = self.TP[:, i]  # take the i-th binding
             for j in range(i+1):  # just operate in the lower triangle, the rest is symmetric
-                w_j = self.TP[:, j]
-                if i == j:
-                    W = W + harmonies[i, j] * (torch.matmul(w_i, w_j.T) + torch.matmul(
-                        w_j, w_i.T)) / (torch.matmul(w_i.T, w_j)*torch.matmul(w_j.T, w_i))
+                w_j = self.TP[:, j]  # take the j-th binding
+                if i != j:
+                    W += (harmonies[i, j] * (w_i.matmul(w_j.T) + w_j.matmul(w_i.T))
+                          ) / (w_i.T.matmul(w_i) * w_j.T.matmul(w_j))
                 else:
-                    W = W + .5 * harmonies[i, j] * (torch.matmul(w_i, w_j.T) + torch.matmul(
-                        w_j, w_i.T)) / (torch.matmul(w_i.T, w_j)*torch.matmul(w_j.T, w_i))
+                    W += .5 * (harmonies[i, j] * (w_i.matmul(w_j.T) + w_j.matmul(w_i.T))) / (
+                        w_i.T.matmul(w_i)*w_j.T.matmul(w_j))
         return W
 
     def _set_weights(self):
+        """Transfor neural weights into conceptual weights."""
         self.Wc = torch.mm(self.TP.T, self.W).mm(self.TP)
 
     def _set_bias(self):
-        """Neural Bias Matrix from C-biases
+        """Conceptual Bias Matrix from S-biases
 
             Bc is a n-dimensional array, n = num Bindings
             TP is the change of Base matrix
@@ -317,11 +362,103 @@ class Net(object):
         # self.B = self.TPinv.T.matmul(self.Bc)
         self.Bc = self.TP.T.matmul(self.B)
 
+    def debug_copies(self):
+        """Create debug copies of the initialized matrices
+        #TODO: Why? Can we delete this?
+        """
+        self.b_debug = self.B.clone().detach()
+        self.Bc_debug = self.Bc.clone().detach()
+        self.W_debug = self.W.clone().detach()
+        self.Wc_debug = self.Wc.clone().detach()
+
     def _set_quantList(self):
         """Quantization list"""
         self.quantList = []
         for _, index in self.role2index.items():
             self.quantList.append(self.R[:, index])
+
+    # ------------------RECOMMENDED VALUES FOR Q, L, T ------------------
+
+    def check_Q_T_lambda(self):
+        """Check the bowl parameters."""
+        # Substituted with Bowl.recommend_strength()
+        #self.vars['q_rec'], self.vars['q_rec_nd'] = self.recommend_Q()
+
+        self.vars['lambda_rec'] = self.recommend_L()
+        # Check lambdas
+        # 1e-2 tolerance #TODO: review tol
+        if abs(self.settings['lambdaInit'] - self.vars['lambda_rec']) > 0.01:
+            print(
+                f"LAMBDA RECOMMENDED: {self.vars['lambda_rec']}, ACTUAL LAMBDA = {self.settings['lambdaInit']}")
+            choice = input(
+                "If you want to change to the recommended value press 'y', else any other key:")
+            if choice.lower() == 'y':
+                self.settings['lambdaInit'] = self.vars['lambda_rec']
+                # TODO: clean this chaos up.... What does belong to settings, what to vars, what to encodings?
+                self.vars['lambdaInit'] = self.vars['lambda_rec']
+                self.logger(new_lambda=self.vars['lambda_rec'])
+
+        self.vars['T_rec'] = self.recommend_T()
+        # Check Temperatures
+        if abs(self.vars['T_init'] - self.vars['T_rec']) > 1e-07:  # 1e-7 tolerance
+            print(
+                f"T RECOMMENDED: {self.vars['T_rec']}, ACTUAL T = {self.vars['T_init']}")
+            choice = input(
+                "If you want to change to the recommended value press 'y', else any other key:")
+            if choice.lower() == 'y':
+                self.vars['T_init'] = self.vars['T_rec']
+                self.logger(new_temperature=self.vars['T_rec'])
+
+    def recommend_Q(self):
+        """ The value of the param Q ensures that the weights of the final weight matrix
+        are negative definite, which is an important condition for the distribution to be stationary
+
+        The mechanics is pretty simple: we must just find a value that is larger than the greatest positive eigvalue in Wc
+
+        #TODO: The eigvectors and eigvals differ between MATLAB, Numpy and Pytorch probably due to different
+        algorithms viz. error in the numerical algorithm. I should check if this is an issue or it works.
+
+        """
+        eigvals_wc = torch.linalg.eigvalsh(self.Wc)
+        max_eigvalue = torch.max(eigvals_wc)
+        q_nd = max(0, max_eigvalue)
+        print(f"Eigenvalues of the weight matrix found: \n {eigvals_wc}\n")
+
+        # Find the smallest q that puts the Harmony maximum between [0,1]
+        bmin = torch.min(self.Bc) - self.settings['maxInp']
+        bmax = torch.max(self.Bc) + self.settings['maxInp']
+
+        # Use the bowl parameter to calculate q
+        q_0 = -bmin/self.domain.z
+        q_1 = (bmax + max_eigvalue) / \
+            (1 - self.vars['bowl_center'])  # Will this work?
+        q_range = torch.max([q_0, q_1, q_nd])
+
+        return q_range, q_nd
+
+    def recommend_L(self):
+        """Recommended lambda init value
+
+        This function is mathematically problematic. See Issue #2
+        # TODO: see above eigvals Pytorch
+        """
+
+        min_eigenvalue = torch.min(torch.linalg.eigvalsh(self.Wc))
+        l = 1 / (1 + 4*torch.abs(min_eigenvalue - self.vars['q_init']))
+        return l
+
+    def recommend_T(self):
+        """ Compute the recommended temperature
+
+        Finds the value of T that makes the maximum stdev of the stationary
+        gaussian distribution equal to the passed-in value. The precision of
+        eigendirection k is (q-eig(k))/T.
+
+        """
+        max_eigvalue = torch.max(torch.linalg.eigvalsh(self.Wc))
+        T = (self.settings["tgtStd"] ** 2) * \
+            (self.vars['bowl_strength'] - max_eigvalue)
+        return T
 
     # ---------------------- UPDATE WEIGHT AND BIASES --------------------
     def set_singleWeight(self, bind1, bind2, weight, symmetric=True):
@@ -387,16 +524,27 @@ class Net(object):
 
     # -----------------------  SAVE -----------------------------------------
 
-    def logger(fp="data/summary.txt", **kwargs):
+    def logger(self, **kwargs):
+        fp = self.settings['summary_file']
         with open(fp, "a+", encoding="utf-8") as summary:
             for key, value in kwargs.items():
-                summary.write(key)
-                summary.write("\n")
-                summary.write(value)
-                summary.write("-"*80 + "\n\n")
+                if isinstance(value, dict):
+                    for k, v in value.items():
+                        summary.write(str(k))
+                        summary.write("\n")
+                        summary.write(str(v))
+                        summary.write("\n" + "-"*80 + "\n\n")
+                else:
+                    summary.write(str(key))
+                    summary.write("\n")
+                    summary.write(str(value))
+                    summary.write("\n" + "-"*80 + "\n\n")
 
     def save_net(self):
         pass
+
+    def __repr__(self):
+        return "GSC Network"
 
 
 class Bowl(object):
@@ -404,10 +552,21 @@ class Bowl(object):
         self.Net = GSCNet
         self.center = self.Net.vars['bowl_center'] * \
             torch.ones(self.Net.nSym, dtype=torch.double)
-        self.strength = self.recommend_strength()
+        #self.strength = self.recommend_strength()
+        self.strength = self.recommended_strength_Matlab()
+        print(
+            f"recommended pyton: {self.recommend_strength()}\nRecommended Matlab: {self.strength}")
 
     def recommend_strength(self):
-        """Calculate the recommended strength for the Bowl"""
+        """Calculate the recommended strength for the Bowl.
+
+        This value depends on the external input and will be used either to set the strength of the bowl
+        or to check that the chosen values allows the training to converge.
+
+        This value is crucial since the final weight matrix should be negative-definite.
+        This value is exactly what ensures that.
+
+        """
         eigenvalues = torch.linalg.eigvalsh(self.Net.Wc)
         largest_eigval = torch.max(eigenvalues)
 
@@ -426,3 +585,21 @@ class Bowl(object):
             value = largest_eigval
 
         return value
+
+    def __repr__(self):
+        return f"Bowl object with strength {self.strength} and center {self.center}"
+
+    def recommended_strength_Matlab(self):
+        """The Matlab version of the function to calculate the recommended Q value"""
+
+        eigMax = torch.max(torch.linalg.eigvalsh(self.Net.Wc))
+        q_nd = max(0, eigMax)
+
+        beta_min = -(torch.min(self.Net.Bc) -
+                     self.Net.settings['maxInp'])/self.Net.vars['bowl_center']
+        beta_max = torch.max(self.Net.Bc) + self.Net.settings['maxInp']
+        beta_max = (beta_max + eigMax)/(1 - self.Net.vars['bowl_center'])
+
+        q_rec = max([beta_min, beta_max, q_nd])
+
+        return q_rec
