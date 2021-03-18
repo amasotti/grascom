@@ -7,14 +7,19 @@ Collections of auxiliary functions
 import torch
 import numpy as np  # Just because Numpy has the "order='F'" option, then convert in tensor
 
+# ------------------------------------------------------------------------------
+
 
 def fortran_reshape(array, shape):
     """At moment very sloppy... 
     I've opened an issue on pytorch/pytorch, waiting for the devs
-    to support the fortran order in Pytorch"""
-    array = array.numpy()
+    to support the fortran order in Pytorch
+    """
+    array = array.numpy().flatten()
     array = array.reshape(shape, order="F")
     return torch.tensor(array)
+
+# ------------------------------------------------------------------------------
 
 
 def is_symmetric(M, rtol=1e-06, atol=1e-08):
@@ -28,8 +33,16 @@ def fixed_dotProduct_matrix(n, d, z=0, target_matrix=None):
     """Generate a Matrix of random vectors (the representations of our fillers and roles ) 
         such that the pairwise similarity are close within a given tolerance 
         to the numbers specified in z or build the matrix specified as 'target_matrix'.
-
         The vectors desired are THE COLUMNS of the returned matrix.
+
+        Params:
+            n = the number of column vectors to generate
+            d = the dimension of each vector and hence the nrows of the calculated matrix
+            z = the desired dotproduct (default = 0 -> maximal dissimilar vectors)
+            target_matrix = the matrix of desired dotproducts, usually a similarity matrix
+
+        Return:
+            M (torch tensor)
     """
 
     if target_matrix is None:  # if a scalar is passed, build the corresponding symmetric matrix

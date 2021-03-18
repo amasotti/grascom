@@ -21,11 +21,23 @@ class Net(object):
         self.R = self.grammar.bind.R
         self.F = self.grammar.bind.F
         self.nSym = self.grammar.bind.nF * self.grammar.bind.nR
-        # Create all possible bindings
-        self.set_all_bindings()
+
+        # Dictionaries
+        # Fillers
+        self.filler2index = self.grammar.fillers.filler2index
+        self.index2filler = self.grammar.fillers.index2filler
+
+        # Roles
+        self.role2index = self.grammar.roles.role2index
+        self.index2role = self.grammar.roles.index2role
+
+        # Bindings
+        self.bind2index = self.grammar.bind.bind2index
+        self.index2bind = self.grammar.bind.index2bind
 
         #  Set up the settings dictionary
         self._define_settings()
+        # Variables that will change/be updated while training
         self._training_vars()
 
         # Harmony constraints
@@ -112,33 +124,57 @@ class Net(object):
     # ----------------------- EXTERNAL INPUT  ----------------------------
 
     def readInput(self, fp="data/inp_pandas.csv"):
+        """Read external input.
+
+        Inputs are provided in a csv table with header:
+        id,filler,r1,r2,....,rn
+
+        The id marks the input as whole: many lines with the same ID count as 1 input
+
+        requires Pandas
+        """
+        # Read dataframe
         inputs = pd.read_csv(fp, sep=",")
+
         self.nStimuli = len(inputs['id'].unique())
+        # Initialize stimuli tensor
         self.stimuli = torch.zeros(
             (self.nStimuli, self.grammar.bind.nF, self.grammar.bind.nR))
+
+        # Loop over the single inputs as whole
         for idx, i in enumerate(inputs['id'].unique()):
             inp_string = ""
             stimulus = inputs[inputs.id == i].to_numpy()[:, 1:]
+
+            # Loop over the fillers in a given input
             for filler in stimulus:
                 fidx = self.grammar.bind.fillers.index(filler[0])
                 inp_string += filler[0] + "-"
                 for roledix in range(self.grammar.bind.nR):
                     self.stimuli[idx, fidx, roledix] = filler[roledix+1]
             print(f"Input processed: {inp_string[:-1]}\n")
-        # TODO: Should this be left so, or do we need (nInp, nR, nF)?
 
     # -----------------------  RETRIEVE BINDINGS -------------------------
-    def set_all_bindings(self, sep="/"):
-        """Build a list of all possible bindings"""
-        self.binding_names = [
-            filler + sep + role for role in self.grammar.roles.rolesNames for filler in self.grammar.fillers.fillersNames]
-
-    def find_bindings(self, binding):
+    def find_bindings(self, bindName):
         """Retrieve the index of a specific binding"""
         try:
-            return self.binding_names.index(binding)
-        except:
-            raise f"The binding {binding} is not in the general list... check your input file!"
+            return self.bind2index[bindName]
+        except KeyError:
+            raise f"The binding {bindName} is not in the general list... check your input file!"
+
+    def find_role(self, roleName):
+        """Retrieve the index of a specific role"""
+        try:
+            return self.role2index[roleName]
+        except KeyError:
+            raise f"The role {roleName} is not in the general list... check your input file!"
+
+    def find_filler(self, fillerName):
+        """Retrieve the index of a specific binding"""
+        try:
+            return self.filler2index[fillerName]
+        except KeyError:
+            raise f"The Filler {fillerName} is not in the general list... check your input file!"
 
     # -----------------------  SETUP ------------------------------------
     # -----------------------  ENCODINGS --------------------------------
@@ -153,8 +189,8 @@ class Net(object):
         self.encodings['coord_roles'] = 'local'
         self.encodings['dim_fillers'] = None
         self.encodings['dim_roles'] = None
-        self.encodings['fillers_names'] = self.grammar.fillers.fillersNames
-        self.encodings['roles_names'] = self.grammar.roles.rolesNames
+        self.encodings['fillers_names'] = list(self.filler2index.keys())
+        self.encodings['roles_names'] = list(self.role2index.keys())
         self.encodings['FillerSimilarities'] = self.fillers.similarities
 
     def update_encodings(self, new_encodings):
@@ -284,8 +320,8 @@ class Net(object):
     def _set_quantList(self):
         """Quantization list"""
         self.quantList = []
-        for i, r in enumerate(self.grammar.roles.rolesNames):
-            self.quantList.append(self.R[:, i])
+        for _, index in self.role2index.items():
+            self.quantList.append(self.R[:, index])
 
     # ---------------------- UPDATE WEIGHT AND BIASES --------------------
     def set_singleWeight(self, bind1, bind2, weight, symmetric=True):

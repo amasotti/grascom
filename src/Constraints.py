@@ -1,6 +1,9 @@
 """
 Set of OT constraints 
 
+Test class 
+This functions will be replaced by the Harmony constraints.
+
 """
 import re
 import torch
