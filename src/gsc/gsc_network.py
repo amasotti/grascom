@@ -5,14 +5,14 @@ __date__ : Februar 201
 __author__ : A. Masotti (on the model of LDNet 1.5)
 
 """
-from src.classes.utilFunc import fortran_reshape
+from src.classes.utilFunc import column_max, fortran_reshape
 from src.classes.Bowl import Bowl
 import torch
 import numpy as np
 import math
 from tqdm import tqdm, trange
-#import matplotlib.pyplot as plt
-#import seaborn
+# import matplotlib.pyplot as plt
+# import seaborn
 import pandas as pd
 # Set seed for reproducibility
 torch.manual_seed(123)
@@ -105,7 +105,7 @@ class Net(object):
         self.vars = dict()
         # TODO: somewhen toward ends I'll have to update this list
         self.vars["var_names"] = [
-            'Activation', 'Harmony', 'H0', 'Q', 'q', 'Temp', 'time', 'ema_speed', 'speed']
+            'state', 'Harmony', 'H0', 'Q', 'q', 'Temp', 'time', 'ema_speed', 'speed']
 
         # Temperature params
         self.vars['T_init'] = -1
@@ -173,21 +173,21 @@ class Net(object):
         self.W = self.compute_neural_weights()
         self.B = self.compute_neural_biases()
 
-        # Activation and Inputs for the RNN-like network
-        self.activationC = torch.zeros(
+        # States and Inputs for the RNN-like network
+        self.stateC = torch.zeros(
             self.nSym, dtype=torch.double)
-        self.activationC_prev = torch.zeros(
-            self.nSym, dtype=torch.double)
-
-        self.activation = self.toNeural()
-        self.activation_prev = self.toNeural(matrix=self.activationC_prev)
-
-        self.externalInpC = torch.zeros(self.nSym, dtype=torch.double)
-        self.externalInpC_prev = torch.zeros(
+        self.stateC_prev = torch.zeros(
             self.nSym, dtype=torch.double)
 
-        self.externalInp = self.toNeural(self.externalInpC)
-        self.externalInp_prev = self.toNeural(self.externalInpC_prev)
+        self.state = self.toNeural()
+        self.state_prev = self.toNeural(matrix=self.stateC_prev)
+
+        self.inpC = torch.zeros(self.nSym, dtype=torch.double)
+        self.inpC_prev = torch.zeros(
+            self.nSym, dtype=torch.double)
+
+        self.inpS = self.toNeural(self.inpC)
+        self.inpS_prev = self.toNeural(self.inpC_prev)
 
         # Construct weights and biase matrices for the Neural space
         self._set_weights()
@@ -258,7 +258,7 @@ class Net(object):
 
     def generateTP(self):
         """Generate the Matrices for the change-of-basis from Neural to Conceptual
-            and the other way round 
+            and the other way round
         """
         # Approximate to Kronecker Product
         self.TP = torch.kron(self.R, self.F).double()
@@ -272,13 +272,13 @@ class Net(object):
 
             This will be derived from the Harmonies specified in self.Hc
             (the single constituent Harmony) and will then be transformed
-            into the B matrix for the Constituent space through simple 
+            into the B matrix for the Constituent space through simple
             matrix multiplication
 
         """
         # flatten
         harmonies = fortran_reshape(self.Hc, (torch.numel(self.Hc), 1))
-        #harmonies = self.Hc.reshape((torch.numel(self.Hc), 1))
+        # harmonies = self.Hc.reshape((torch.numel(self.Hc), 1))
 
         # Initialize
         biases = self.initializer((self.nSym, 1), dist=dist)
@@ -295,10 +295,10 @@ class Net(object):
 
             This will be derived from the Harmonies specified in self.Hcc
             (the pairwise constituent Harmony) and will then be transformed
-            into the W matrix for the Constituent space through simple 
+            into the W matrix for the Constituent space through simple
             matrix multiplication
 
-            #0.5 in the case i == j (because of the symmetry)
+            # 0.5 in the case i == j (because of the symmetry)
         """
         # TODO: Should this begin with zeros? Or can we initialize the matrices with random dist?
         harmonies = fortran_reshape(self.Hcc, (self.nSym, self.nSym))
@@ -341,7 +341,7 @@ class Net(object):
 
     def debug_copies(self):
         """Create debug copies of the initialized matrices
-        #TODO: Why? Can we delete this?
+        # TODO: Why? Can we delete this?
         """
         self.b_debug = self.B.clone().detach()
         self.Bc_debug = self.Bc.clone().detach()
@@ -358,7 +358,7 @@ class Net(object):
         self.LV_inhM = self.LotkaVolterra_InhibitMatrix()  # (nF, nF)
         self.LV_c, self.LV_s = self.LotkaVolterra_Dynamics()  # (nS, 1)
         # TODO: The LV weights are incredibly slow...
-        #self.LV_W = self.LotkaVolterra_Weights2()
+        # self.LV_W = self.LotkaVolterra_Weights2()
 
     def LotkaVolterra_InhibitMatrix(self):
         """Create the Lotka Volterra Matrix in the C-Space
@@ -427,10 +427,10 @@ class Net(object):
         ------------------
         W : the matrix of Weights for the Lotka-Volterra space
 
-        #FIXME: Improved by delimiting the range where we now the floor division for i and j 
-        will be equal. Still very slow. 
+        # FIXME: Improved by delimiting the range where we now the floor division for i and j
+        will be equal. Still very slow.
 
-        #TODO: Check that the dimensions are right!
+        # TODO: Check that the dimensions are right!
         """
 
         # Initialize the 3D Array
@@ -453,7 +453,7 @@ class Net(object):
     def check_Q_T_lambda(self):
         """Check the bowl parameters."""
         # Substituted with Bowl.recommend_strength()
-        #self.vars['q_rec'], self.vars['q_rec_nd'] = self.recommend_Q()
+        # self.vars['q_rec'], self.vars['q_rec_nd'] = self.recommend_Q()
 
         self.vars['lambda_rec'] = self.recommend_L()
         # Check lambdas
@@ -487,7 +487,7 @@ class Net(object):
 
         The mechanics is pretty simple: we must just find a value that is larger than the greatest positive eigvalue in Wc
 
-        #TODO: The eigvectors and eigvals differ between MATLAB, Numpy and Pytorch probably due to different
+        # TODO: The eigvectors and eigvals differ between MATLAB, Numpy and Pytorch probably due to different
         algorithms viz. error in the numerical algorithm. I should check if this is an issue or it works.
 
         """
@@ -536,8 +536,8 @@ class Net(object):
     def initialize_state(self):
         """Initialize network states and load external inputs"""
         self.state = self.initializer((self.nSym, 1))
-        self.inp_s = self.initializer((self.nSym, 1))
-        self.inp_c = self.initializer((self.nSym, 1))
+        self.inpS = self.initializer((self.nSym, 1))
+        self.inpC = self.initializer((self.nSym, 1))
 
         # Collect external inputs
         self.readInput()
@@ -635,7 +635,7 @@ class Net(object):
         The dimension should be (nSym, 1)
         """
         if matrix is None:
-            matrix = self.activationC
+            matrix = self.stateC
 
         matrix = fortran_reshape(matrix, (matrix.numel(), 1))
         return torch.matmul(self.TP, matrix)
@@ -644,7 +644,7 @@ class Net(object):
         """Transform Neural vectors into local vectors."""
 
         if matrix is None:
-            matrix = self.activation
+            matrix = self.state
         if len(matrix.shape) > 1:
             C = torch.mm(self.TPinv, matrix)
         else:
@@ -669,11 +669,11 @@ class Net(object):
                 stim_vec = self.stimuli[stimulus, :, :]
                 diverge_prob, harmony = self.process_stimulus(stim_vec)
                 # Update after stimulus processing
-                self.update_res_stim()
+                self.update_after_stim()
                 print(
                     f"\nLast best Harmony: {float(harmony)}\n")
             # Update values after each epoch
-            self.update_res_epoch()
+            self.update_after_epoch()
         self.final_update()
 
     # -----------------------  PROCESSING AND UPDATE ---------------------------------
@@ -694,8 +694,9 @@ class Net(object):
         This updates the traces initialized in init_for_run()
 
         """
-        TP_state, winner, state_name, binding, Cdist, Sdist, state_num, TP_h = self.calc_nearest_state()
-
+        TP_state, winners, state_name, binding, Cdist, Sdist, state_num, TP_h = self.calc_nearest_state()
+        self.vars['winners'] = winners
+        self.vars['symBindings_winners'] = binding
         self.vars['s_trace'] = self.state
         self.vars['Harmony_trace'] = harmony
         self.vars['speed_trace'] = self.calc_speed()
@@ -706,11 +707,19 @@ class Net(object):
         self.vars['TPnum_trace'] = state_num
         self.vars['TP_h_trace'] = TP_h
         self.vars['TP_dist_trace'] = Cdist
-        self.vars['winners'] = winner
 
         # Log the updated values
         self.logger(step=self.vars['step'])
         self.logger(traces=self.vars)
+
+    def update_after_stim(self):
+        pass
+
+    def update_after_epoch(self):
+        pass
+
+    def final_update(self):
+        pass
 
     # ----------------------- AUXILIARY TO PROCESSING ----------------------
 
@@ -742,8 +751,8 @@ class Net(object):
         # Create the representations for the stimulus
         stimulus = fortran_reshape(
             stimulus, (torch.numel(stimulus), 1)).double()
-        self.inp_s = self.TP.matmul(stimulus)
-        self.inp_c = self.TP.T.matmul(self.inp_s)
+        self.inpS = self.TP.matmul(stimulus)
+        self.inpC = self.TP.T.matmul(self.inpS)
 
         # Initialize state
         self.initial_state = self.settings['initStateMean'] * torch.rand(
@@ -766,8 +775,8 @@ class Net(object):
             - the maximum Harmony of the actual state
 
         """
-        self.inp_s = self.toNeural(self.inp_c)
-        self.state = torch.linalg.pinv(self.W).matmul(-self.B - self.inp_s)
+        self.inpS = self.toNeural(self.inpC)
+        self.state = torch.linalg.pinv(self.W).matmul(-self.B - self.inpS)
         self.stateC = self.toConceptual(self.state)
         harmony = self.calc_harmony()
         return harmony
@@ -778,29 +787,51 @@ class Net(object):
         if state is None:
             state = self.state
 
-        harmony = (self.B + self.inp_s).T.matmul(self.state)
+        harmony = (self.B + self.inpS).T.matmul(self.state)
         harmony += .5 * self.state.T.matmul(self.W).matmul(self.state)
         return harmony
 
     def calc_speed(self):
         """Calc the speed at which the Learning is improving"""
-        pass
+        if self.vars['step'] > 0:
+            target_tensor = torch.abs(self.state - self.state_prev)
+            speed = column_max(target_tensor) / self.vars['dt']
+        else:  # this is the first step, no calculation is possible
+            speed = None
+        return speed
 
     def calc_ema(self):
         """Calc the ema value"""
-        pass
+        emaFactor = self.settings['emaFactor']
+        stepFactor = emaFactor ** self.vars['dt']
+        if self.vars['step'] == 0:
+            ema = None
+        elif self.vars['step'] == 1:
+            ema = self.vars['speed_trace'][1]
+        else:  # FIXME: Here something is missing
+            ema = stepFactor * self.vars['emaSpeed_trace'][self.vars['step'] - 1] + (
+                1 - stepFactor)*self.vars['speed_trace'][self.vars['step']]
+        return ema
+
+    @staticmethod
+    def emaSpeed(array, factor):
+        # FIXME: At moment not used
+        """Calc the exponential moving average (EMA) of a vector"""
+        ema = array.clone().detach()
+        for time in range(1, array.size()):
+            ema[time] = factor * ema[time-1] + (1 - factor) * array[time]
+        return ema
 
     def calc_nearest_state(self):
         """Calc the nearest TP state and the most probable winner"""
         self.stateC = self.toConceptual(self.state)
         CTP, winners = self.find_winner()
-        self.vars['winners'] = winners
 
-        state_name = self.find_TPname()
-        binding = self.find_symBinding()
-        state_num = self.find_TPnum()
+        state_name = self.find_TPname(filleridx=winners)
+        binding = self.find_symBinding(filleridx=winners)
+        state_num = self.find_TPnum(filleridx=winners)
         TP_state = self.TP.matmul(fortran_reshape(CTP, (torch.numel(CTP), 1)))
-        Cdist = self.frobenius(CTP - self.stateC)
+        Cdist = torch.norm(CTP - self.stateC, p='fro')  # Frobenius Norm
         Sdist = self.L2norm(TP_state - self.state)
         TP_h = self.calc_harmony(state=TP_state)
 
@@ -808,12 +839,9 @@ class Net(object):
 
     def find_winner(self):
         """Return a binary Matrix that implements the winner-takes-all strategy"""
-        winners_idx = []
+
         # Extract the max value of each col in the conceptual state matrix
-        #state = fortran_reshape(self.stateC, self.stateC.shape)
-        # TODO: check the usual issue with rows and cols
-        for r in range(self.stateC.shape[1]):
-            winners_idx.append(int(torch.argmax(self.stateC[:, r])))
+        winners_idx = column_max(self.stateC)
 
         M = torch.zeros_like(self.stateC)
         # Populate the matrix
@@ -821,25 +849,44 @@ class Net(object):
             M[winners_idx[r], r] = 1
         return M, winners_idx
 
-    def find_TPname(self):
+    def find_TPname(self, filleridx):
         "Concatenate the winning fillers to give the name of the nearest TP state"
         TP_name = ""
-        for winner in self.vars['winners']:
-            filler = self.index2filler[winner]
+        for winner in filleridx:
+            filler = self.index2filler[int(winner)]
             TP_name += filler
         return TP_name
 
-    def find_TPnum(self):
-        pass
+    def find_TPnum(self, filleridx):
+        """Retrieve the state number given ordered winner fillers
 
-    def find_symBinding(self):
-        pass
+        This is achieved treating the winning fillers a number in base nFillers 
+        starting from the origin.
+        """
+        coefficients = torch.tensor(self.grammar.nF).pow(
+            torch.arange(self.grammar.nR - 1, -1, -1))
+        stateNum = (filleridx - 1).matmul(coefficients.T) + 1
+        return stateNum
 
-    def frobenius(self, array):
-        pass
+    def find_symBinding(self, filleridx):
+        """Find the bindings.
+        Given an ordered list of fillers (the position == roles)
+        returns the corresponding bindings
+
+        Returns a dictionary:
+            key : binding in the form filler/role 
+            value : the binding index in the general binding dictionary
+        """
+        symBinding = dict()
+        for i, filler in enumerate(filleridx):
+            binding = self.index2filler[int(filler)] + "/" + self.index2role[i]
+            symBinding[binding] = self.find_bindings(binding)
+        return symBinding
 
     def L2norm(self, array):
-        pass
+        """Calculate the L2 Norm"""
+        norm = torch.sqrt(torch.sum(array * array))
+        return norm
     # -----------------------  VISUALIZATION -------------------------------
 
     def plot(self):  # TODO:

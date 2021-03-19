@@ -75,3 +75,29 @@ def fixed_dotProduct_matrix(n, d, z=0, target_matrix=None):
     print(
         f"Desidered matrix not found after {i} attempts. Rerun the script or use the last found matrix!")
     return M
+
+# ------------------------------------------------------------------------------
+
+
+def column_max(tensor, what="argmax"):
+    """Torch.argmax/max calculate the absolute maximum value
+    in a matrix.
+
+    This function returns an array filled with the maximum values, one for 
+    each column of the matrix
+
+    Params:
+    ----------
+     - the tensor to analyze
+     - what : 'argmax', 'values'. Argmax (default) returns the indices of the rows
+        with the highest value.
+
+    """
+    max_values = torch.empty(tensor.shape[1])
+    if what == 'argmax':
+        for c in range(tensor.shape[1]):
+            max_values[c] = torch.argmax(tensor[:, c])
+    else:
+        for c in range(tensor.shape[1]):
+            max_values[c] = torch.max(tensor[:, c])
+    return max_values.long()

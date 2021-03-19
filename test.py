@@ -25,4 +25,6 @@ cons = [("bh/s1", "b/s1", -5),
 G.update_Hcc(cons)
 
 N = Net(G)
+
+
 p = N()

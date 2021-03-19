@@ -32,14 +32,14 @@ class Bowl(object):
 
         if torch.sum(self.center.sum()) > 0:
             if self.Net.nSym == 1:
-                beta1 = -(self.Net.Bc + self.Net.externalInpC) / self.center
-                beta2 = (self.Net.Bc + self.Net.externalInpC +
+                beta1 = -(self.Net.Bc + self.Net.inpC) / self.center
+                beta2 = (self.Net.Bc + self.Net.inpC +
                          largest_eigval) / (1-self.center)
             else:
                 beta1 = torch.min(
-                    (self.Net.Bc + self.Net.externalInpC) / self.center) * -1
+                    (self.Net.Bc + self.Net.inpC) / self.center) * -1
                 beta2 = torch.max(
-                    (self.Net.Bc + self.Net.externalInpC + largest_eigval) / (1 - self.center))
+                    (self.Net.Bc + self.Net.inpC + largest_eigval) / (1 - self.center))
                 value = max(largest_eigval, beta1, beta2)
         else:
             value = largest_eigval
