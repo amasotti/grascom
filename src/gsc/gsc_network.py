@@ -667,11 +667,11 @@ class Net(object):
         for epoch in trange(self.settings['epochs'], desc="Epoch routine:"):
             for stimulus in trange(self.nStimuli, desc=f"Stimulus routine:"):
                 stim_vec = self.stimuli[stimulus, :, :]
-                diverge_prob = self.process_stimulus(stim_vec)
+                diverge_prob, harmony = self.process_stimulus(stim_vec)
                 # Update after stimulus processing
                 self.update_res_stim()
                 print(
-                    f"\nLast best Harmony: {float(self.vars['Harmony_trace'])}\n")
+                    f"\nLast best Harmony: {float(harmony)}\n")
             # Update values after each epoch
             self.update_res_epoch()
         self.final_update()
@@ -681,19 +681,36 @@ class Net(object):
         """Process a single stimulus."""
         diverge_prob = False
         self.init_for_run(stimulus)
-        self.vars['Harmony_trace'] = self.calc_max_Harmony()
+        harmony = self.calc_max_Harmony()
 
-    def update_res_stim(self):
-        """Update the values after each stimulus."""
-        ...
+        # Update after each step
+        self.updateAfterStep(harmony)
 
-    def update_res_epoch(self):
-        """Update the values after each epoch."""
-        ...
+        return diverge_prob, harmony
 
-    def final_update(self):
-        """Final update, after the last epoch"""
-        ...
+    def updateAfterStep(self, harmony):
+        """Record state after each step.
+
+        This updates the traces initialized in init_for_run()
+
+        """
+        TP_state, winner, state_name, binding, Cdist, Sdist, state_num, TP_h = self.calc_nearest_state()
+
+        self.vars['s_trace'] = self.state
+        self.vars['Harmony_trace'] = harmony
+        self.vars['speed_trace'] = self.calc_speed()
+        self.vars['ema_trace'] = self.calc_ema()
+        self.vars['lambda_trace'] = self.vars['lambda']
+        self.vars['time_trace'] = self.vars['T']
+        self.vars['TP_trace'] = state_name
+        self.vars['TPnum_trace'] = state_num
+        self.vars['TP_h_trace'] = TP_h
+        self.vars['TP_dist_trace'] = Cdist
+        self.vars['winners'] = winner
+
+        # Log the updated values
+        self.logger(step=self.vars['step'])
+        self.logger(traces=self.vars)
 
     # ----------------------- AUXILIARY TO PROCESSING ----------------------
 
@@ -755,30 +772,74 @@ class Net(object):
         harmony = self.calc_harmony()
         return harmony
 
-    def calc_harmony(self):
+    def calc_harmony(self, state=None):
         """Calculate Harmony value"""
+
+        if state is None:
+            state = self.state
+
         harmony = (self.B + self.inp_s).T.matmul(self.state)
         harmony += .5 * self.state.T.matmul(self.W).matmul(self.state)
         return harmony
 
-    def update_trace(self):
+    def calc_speed(self):
+        """Calc the speed at which the Learning is improving"""
         pass
 
-    def log_after_step(self):
+    def calc_ema(self):
+        """Calc the ema value"""
         pass
 
-    def HarmonyGradient(self):
+    def calc_nearest_state(self):
+        """Calc the nearest TP state and the most probable winner"""
+        self.stateC = self.toConceptual(self.state)
+        CTP, winners = self.find_winner()
+        self.vars['winners'] = winners
+
+        state_name = self.find_TPname()
+        binding = self.find_symBinding()
+        state_num = self.find_TPnum()
+        TP_state = self.TP.matmul(fortran_reshape(CTP, (torch.numel(CTP), 1)))
+        Cdist = self.frobenius(CTP - self.stateC)
+        Sdist = self.L2norm(TP_state - self.state)
+        TP_h = self.calc_harmony(state=TP_state)
+
+        return TP_state, winners, state_name, binding, Cdist, Sdist, state_num, TP_h
+
+    def find_winner(self):
+        """Return a binary Matrix that implements the winner-takes-all strategy"""
+        winners_idx = []
+        # Extract the max value of each col in the conceptual state matrix
+        #state = fortran_reshape(self.stateC, self.stateC.shape)
+        # TODO: check the usual issue with rows and cols
+        for r in range(self.stateC.shape[1]):
+            winners_idx.append(int(torch.argmax(self.stateC[:, r])))
+
+        M = torch.zeros_like(self.stateC)
+        # Populate the matrix
+        for r in range(M.shape[1]):
+            M[winners_idx[r], r] = 1
+        return M, winners_idx
+
+    def find_TPname(self):
+        "Concatenate the winning fillers to give the name of the nearest TP state"
+        TP_name = ""
+        for winner in self.vars['winners']:
+            filler = self.index2filler[winner]
+            TP_name += filler
+        return TP_name
+
+    def find_TPnum(self):
         pass
 
-    def check_overflow(self):
+    def find_symBinding(self):
         pass
 
-    def update_lambda_T(self):
+    def frobenius(self, array):
         pass
 
-    def check_convergency(self):
+    def L2norm(self, array):
         pass
-
     # -----------------------  VISUALIZATION -------------------------------
 
     def plot(self):  # TODO:
