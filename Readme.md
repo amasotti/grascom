@@ -34,45 +34,15 @@ see `requirement.txt`
 
 ---
 
-1. Issue 1 : Pytorch
-   I wonder which parts of this nn can be implemented using directly Pytorch functionalities or modules.
-   At the end this is nothing else but a nn that performs symbolic tensor computation. Is there a way to simplify the code?
-
-2. Issue 2 : Lambda
-   While training the GSC should balance quantization (transform continuous vectors and blends into discrete units) and optimization (that works on continuous space). This is done by balancing the two processes through lambda-diffusion:
-   In pseudo-code the dynamics `D` at any given training step `t` is equal to:
-
-`D(t) = lambda_t * Optimization + (1-lambda_t) * Quantization`
-
-lambda progressively decreases from 1 to 0, starting with pure Optimization and landing at pure Quantization. The important issue here is how we calculate lambda.
-
-The original code by Goldrick et al. uses this formula (in `src/settings_checker.py`):
-
-```matlab
-eigMin = min(real(eig(net.Wc)));                 % Find min eigenvalue of c-space weight matrix.
-lambda = 1/(1+4*abs(eigMin-domain.q));
-
-```
-
-which I translated in Python as follows:
-
-```python
-import numpy as np
-
-min_eigenvalue = np.min(np.real(np.linalg.eigvals(self.Wc)))
-l = 1 / (1 + 4*np.abs(min_eigenvalue - self.domain.q))
-
-```
-
-where `self.Wc` is the weight matrix and `self.domain.q` is the bowl-parameter q.
-
-The authors state that this formula
-
-> THIS LOGIC MAY NOT BE CORRECT SINCE THE DRIFT TERM OF THE DIFFUSION PROCESS IS NOT EQUAL TO THE PARTIAL DERIVATIVES IN C-SPACE.
-
-I've left the formula as in the original lacking a better idea, but I would be glad if anyone could help to improve this.
+Have a look at the issues tab.
 
 3. Move the tensors to CUDA to improve speed.
+
+4. Animation axes are not implemented here. MATLAB functions for this:
+
+   setupAnimationAxes (< SetupLDNet)
+   settings.animation_axes
+   initAnimationForRun(settings) (< rundLDNet on Stimulus)
 
 ## Next Project
 

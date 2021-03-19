@@ -143,3 +143,5 @@ cython_debug/
 Ideas.md 
 # Summary for debug
 testing.txt 
+# Test some auxialiary functions
+scratch_book.py

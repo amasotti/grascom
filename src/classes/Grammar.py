@@ -13,10 +13,11 @@ import torch
 class Grammar(object):
     """The Harmonic Grammar."""
 
-    def __init__(self, fillersList, rolesList, fillerSimilarities=None):
+    def __init__(self, fillersList, rolesList, fillerSimilarities=None, emtpyFiller="#"):
 
         # Roles, fillers and bindings
-        self.fillers = Fillers(fillersList, fillerSimilarities)
+        self.fillers = Fillers(
+            fillersList, fillerSimilarities, emptyFiller=emtpyFiller)
         self.roles = Roles(rolesList)
         self.bind = Bindings(self.fillers, self.roles)
 

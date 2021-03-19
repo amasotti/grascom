@@ -13,9 +13,13 @@ class Roles(object):
 
     def __init__(self, roles):
         self.rolesNames = roles
-        self.nR = len(self.rolesNames)
-        self.R = self.rolesMatrix()
+
+        # Build dictionaries
         self.role2index, self.index2role = self.rolesDicts()
+        self.nR = len(self.role2index)
+
+        # Roles Matrix
+        self.R = self.rolesMatrix()
 
     def rolesMatrix(self, dp=0):
         print("Build role Matrix")
@@ -56,15 +60,18 @@ class Fillers(object):
         self.fillersNames = fillers
         # Add the padding element
         self.fillersNames.append(emptyFiller)
-        self.nF = len(self.fillersNames)
+
+        # Build dictionaries
+        self.filler2index, self.index2filler = self.fillersDicts()
+        self.nF = len(self.filler2index)
 
         if fillerSimilarities is None:
             self.similarities = torch.eye(self.nF)
         else:
             self.similarities = fillerSimilarities
 
+        # Filler Matrix
         self.F = self.fillersMatrix(self.similarities)
-        self.filler2index, self.index2filler = self.fillersDicts()
 
     def fillersMatrix(self, target_matrix):
         print(f"Buil Filler Matrix")
@@ -101,6 +108,9 @@ class Bindings(object):
         self.F = fillers.F
         self.R = roles.R
         self.bind2index, self.index2bind = self.bindDicts()
+
+        # Binding Matrix #TODO: Probably not needed
+        self.BindM = torch.zeros((self.nF, self.nR))
 
     def bindDicts(self, sep="/"):
         """Build a dictionary for the bindings."""

@@ -10,7 +10,7 @@ from src.classes.Bowl import Bowl
 import torch
 import numpy as np
 import math
-from tqdm import tqdm
+from tqdm import tqdm, trange
 #import matplotlib.pyplot as plt
 #import seaborn
 import pandas as pd
@@ -54,6 +54,7 @@ class Net(object):
         # Preprare the network to be run
         self.stimuli = None
         self.extData_path = extData_path
+        # General Setup
         self.setup_net()
 
     # -----------------------  GENERAL SETTINGS ------------------------------
@@ -92,17 +93,19 @@ class Net(object):
         self.settings['clamped'] = False
 
     def _training_vars(self):
-        """Variables to keep track in the learning phase"""
+        """Variables to keep track in the learning phase
+
+        It may seem a little bit redundant but to have a "settings" and a "vars"
+        dictionary has its reasons.
+        The settings are reference values, which cannot be updated or modified while training.
+        Vars stores the traces, constantly changing in the training loop. These are reset to the
+        reference values in settings after each epoch.
+
+        """
         self.vars = dict()
+        # TODO: somewhen toward ends I'll have to update this list
         self.vars["var_names"] = [
             'Activation', 'Harmony', 'H0', 'Q', 'q', 'Temp', 'time', 'ema_speed', 'speed']
-
-        self.vars['norm_ord'] = torch.tensor([float('inf')])
-        self.vars['coord'] = 'N'
-
-        # EMA
-        self.vars['ema_factor'] = 0.001
-        self.vars['ema_tau'] = -1 / math.log(self.vars['ema_factor'])
 
         # Temperature params
         self.vars['T_init'] = -1
@@ -112,20 +115,25 @@ class Net(object):
         self.vars['q_init'] = 2  # initial strength for the bowl
         self.vars['q_max'] = 200.
         self.vars['q_rate'] = 10.
-        self.vars['c'] = 0.5
         self.vars['bowl_center'] = 0.5
         self.vars['bowl_strength'] = None
         self.vars['beta_min_offset'] = 0.1
-        # Harmony params
-        self.vars['H0_on'] = True
-        self.vars['H1_on'] = True
-        self.vars['Hq_on'] = True
+        # Time step params
         self.vars['max_dt'] = 0.01
         self.vars['min_dt'] = 0.0005
-        self.vars['q_policy'] = None
-        # Time step params
-        self.vars['time'] = 0
         self.vars['dt'] = 0.001
+        # Training traces
+        self.vars['s_trace'] = None
+        self.vars['prev_s'] = None
+        self.vars['Harmony_trace'] = None
+        self.vars['speed_trace'] = None
+        self.vars['ema_trace'] = None
+        self.vars['lambda_trace'] = None
+        self.vars['time_trace'] = None
+        self.vars['TP_trace'] = None
+        self.vars['TPnum_trace'] = None
+        self.vars['TP_h_trace'] = None
+        self.vars['TP_dist_trace'] = None
 
     def reset(self):
         pass  # TODO:
@@ -184,7 +192,7 @@ class Net(object):
         # Construct weights and biase matrices for the Neural space
         self._set_weights()
         self._set_bias()
-        self.debug_copies()
+        # self.debug_copies()
 
         # Bowl
         self.bowl = Bowl(self)
@@ -205,6 +213,7 @@ class Net(object):
 
         # Initialize states
         self.initialize_state()
+        self.create_result_states()
 
         # Log default parameters
         self.logger(default_settings="#"*25 + " DEFAULT SETTINGS" + "#"*25)
@@ -349,7 +358,7 @@ class Net(object):
         self.LV_inhM = self.LotkaVolterra_InhibitMatrix()  # (nF, nF)
         self.LV_c, self.LV_s = self.LotkaVolterra_Dynamics()  # (nS, 1)
         # TODO: The LV weights are incredibly slow...
-        self.LV_W = self.LotkaVolterra_Weights2()
+        #self.LV_W = self.LotkaVolterra_Weights2()
 
     def LotkaVolterra_InhibitMatrix(self):
         """Create the Lotka Volterra Matrix in the C-Space
@@ -420,6 +429,8 @@ class Net(object):
 
         #FIXME: Improved by delimiting the range where we now the floor division for i and j 
         will be equal. Still very slow. 
+
+        #TODO: Check that the dimensions are right!
         """
 
         # Initialize the 3D Array
@@ -447,16 +458,17 @@ class Net(object):
         self.vars['lambda_rec'] = self.recommend_L()
         # Check lambdas
         # 1e-2 tolerance #TODO: review tol
-        if abs(self.settings['lambdaInit'] - self.vars['lambda_rec']) > 0.01:
+        if abs(self.settings['lambdaInit'] - self.vars['lambda_rec']) > 1e-3:
             print(
                 f"LAMBDA RECOMMENDED: {self.vars['lambda_rec']}, ACTUAL LAMBDA = {self.settings['lambdaInit']}")
             choice = input(
                 "If you want to change to the recommended value press 'y', else any other key:")
             if choice.lower() == 'y':
-                self.settings['lambdaInit'] = self.vars['lambda_rec']
                 # TODO: clean this chaos up.... What does belong to settings, what to vars, what to encodings?
                 self.vars['lambdaInit'] = self.vars['lambda_rec']
-                self.logger(new_lambda=self.vars['lambda_rec'])
+            else:
+                self.vars['lambdaInit'] = self.settings['lambdaInit']
+            self.logger(lambda_value=self.vars['lambdaInit'])
 
         self.vars['T_rec'] = self.recommend_T()
         # Check Temperatures
@@ -526,10 +538,39 @@ class Net(object):
         self.state = self.initializer((self.nSym, 1))
         self.inp_s = self.initializer((self.nSym, 1))
         self.inp_c = self.initializer((self.nSym, 1))
+
+        # Collect external inputs
         self.readInput()
 
         # Initialize Lotka Volterra
         self.LV_Matrices()
+
+        # Initialize Temperature and Lambda
+        # TODO: Does it makes sense to calculate, recommend and initialize
+        # if we then just allocate zero values here?
+        self.vars['T'] = 0
+        self.vars['lambda'] = 0
+
+    def create_result_states(self):
+        """Create a kind of dataframe to store results."""
+
+        # Dictionary of Final TP States (== the winners)
+        self.final_TPStates = dict()
+        for stimulus in self.inputNames:
+            for i in range(self.settings['epochs']):
+                key = stimulus + "/" + str(i)
+                self.final_TPStates[key] = 0
+
+        # Save the numbers of TP final states
+        self.final_TPnum = torch.zeros(
+            (self.nStimuli, self.settings['epochs']))
+
+        # Reaction times
+        self.reaction_times = torch.zeros(
+            (self.nStimuli, self.settings['epochs']))
+
+        # Divergence
+        self.divergence = torch.zeros((self.nStimuli, self.settings['epochs']))
 
     # ----------------------- EXTERNAL INPUT  ----------------------------
 
@@ -546,7 +587,7 @@ class Net(object):
         fp = self.extData_path
         # Read dataframe
         inputs = pd.read_csv(fp, sep=",")
-
+        self.inputNames = []
         self.nStimuli = len(inputs['id'].unique())
         # Initialize stimuli tensor
         self.stimuli = torch.zeros(
@@ -564,6 +605,8 @@ class Net(object):
                 for roledix in range(self.grammar.bind.nR):
                     self.stimuli[idx, fidx, roledix] = filler[roledix+1]
             print(f"Input processed: {inp_string[:-1]}\n")
+            # Store the names for later plotting
+            self.inputNames.append(inp_string[:-1])
 
     # ---------------------- UPDATE WEIGHT AND BIASES --------------------
 
@@ -611,20 +654,130 @@ class Net(object):
 
     # -----------------------  TRAIN ------------------------------------
 
-    def train(self, stimuli):  # TODO:
+    def __call__(self, plot=False):
+        """Train the network, plot the results.
+
+        When the Net is constructed all the weights, biases, bowl params etc..
+        are initialized. The external inputs are read and represented as tensors.
+
+        Then we can simply call the Network and we will start the training loop
+
+
+        """
+        for epoch in trange(self.settings['epochs'], desc="Epoch routine:"):
+            for stimulus in trange(self.nStimuli, desc=f"Stimulus routine:"):
+                stim_vec = self.stimuli[stimulus, :, :]
+                diverge_prob = self.process_stimulus(stim_vec)
+                # Update after stimulus processing
+                self.update_res_stim()
+                print(
+                    f"\nLast best Harmony: {float(self.vars['Harmony_trace'])}\n")
+            # Update values after each epoch
+            self.update_res_epoch()
+        self.final_update()
+
+    # -----------------------  PROCESSING AND UPDATE ---------------------------------
+    def process_stimulus(self, stimulus):
+        """Process a single stimulus."""
+        diverge_prob = False
+        self.init_for_run(stimulus)
+        self.vars['Harmony_trace'] = self.calc_max_Harmony()
+
+    def update_res_stim(self):
+        """Update the values after each stimulus."""
+        ...
+
+    def update_res_epoch(self):
+        """Update the values after each epoch."""
+        ...
+
+    def final_update(self):
+        """Final update, after the last epoch"""
+        ...
+
+    # ----------------------- AUXILIARY TO PROCESSING ----------------------
+
+    def init_for_run(self, stimulus):
+        """Prepare the network to process an external stimulus.
+
+        We start with a local representation in the C-space and
+        initialize the net.
+
+        Most importantly this function updates the representations
+        of the external inputs
+
+        """
+        # Initialize training traces
+        max_steps = self.settings['maxSteps']
+        self.vars['s_trace'] = torch.zeros((max_steps, self.nSym))
+        self.vars['prev_s'] = torch.tensor(
+            [float('inf')]) * torch.ones((self.nSym, 1))
+        self.vars['Harmony_trace'] = torch.zeros((max_steps, 1))
+        self.vars['speed_trace'] = torch.zeros((max_steps, 1))
+        self.vars['ema_trace'] = torch.zeros((max_steps, 1))
+        self.vars['lambda_trace'] = torch.zeros((max_steps, 1))
+        self.vars['time_trace'] = torch.zeros((max_steps, 1))
+        self.vars['TP_trace'] = torch.zeros((max_steps, 1))
+        self.vars['TPnum_trace'] = torch.zeros((max_steps, 1))
+        self.vars['TP_h_trace'] = torch.zeros((max_steps, 1))
+        self.vars['TP_dist_trace'] = torch.zeros((max_steps, 1))
+
+        # Create the representations for the stimulus
+        stimulus = fortran_reshape(
+            stimulus, (torch.numel(stimulus), 1)).double()
+        self.inp_s = self.TP.matmul(stimulus)
+        self.inp_c = self.TP.T.matmul(self.inp_s)
+
+        # Initialize state
+        self.initial_state = self.settings['initStateMean'] * torch.rand(
+            (self.grammar.nF, self.grammar.nR)) * self.settings["initStateStdev"]
+        self.initial_state = self.initial_state.double()
+        self.state = self.toNeural(self.initial_state)
+
+        # Set Lambda and Temperature
+        self.vars['T'] = self.vars['T_init']
+        self.vars['lambda'] = self.vars['lambdaInit']
+        self.vars['step'] = 0
+
+    def calc_max_Harmony(self):
+        """Calculate the maximum Harmony state for the actual state.
+
+        Returns:
+        ---------
+            - A conceptual representation of the actual state
+            - A neural representation of the actual state
+            - the maximum Harmony of the actual state
+
+        """
+        self.inp_s = self.toNeural(self.inp_c)
+        self.state = torch.linalg.pinv(self.W).matmul(-self.B - self.inp_s)
+        self.stateC = self.toConceptual(self.state)
+        harmony = self.calc_harmony()
+        return harmony
+
+    def calc_harmony(self):
+        """Calculate Harmony value"""
+        harmony = (self.B + self.inp_s).T.matmul(self.state)
+        harmony += .5 * self.state.T.matmul(self.W).matmul(self.state)
+        return harmony
+
+    def update_trace(self):
         pass
 
-    # -----------------------  RUNNING ROUTINE ---------------------------
+    def log_after_step(self):
+        pass
 
-    def __call__(self, stimuli, plot=False):  # TODO:
-        self.readInput(stimuli)
-        self.train()
-        if plot:
-            self.plot()
+    def HarmonyGradient(self):
+        pass
 
-    # -----------------------  READ DATA -----------------------------------
-    """Functions to retrieve biases, weights and grid points. Preliminary to
-    plotting."""
+    def check_overflow(self):
+        pass
+
+    def update_lambda_T(self):
+        pass
+
+    def check_convergency(self):
+        pass
 
     # -----------------------  VISUALIZATION -------------------------------
 
