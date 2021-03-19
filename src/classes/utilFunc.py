@@ -51,10 +51,12 @@ def fixed_dotProduct_matrix(n, d, z=0, target_matrix=None):
 
     # Sanity check
     if not is_symmetric(target_matrix):
-        raise 'The target matrix should be symmetric! If A == B, B == A'
+        raise ValueError(
+            'The target matrix should be symmetric! If A == B, B == A')
 
     if torch.any(torch.diag(target_matrix) != 1):
-        raise 'The target matrix main diagonal should have only 1s (A == A)'
+        raise ValueError(
+            'The target matrix main diagonal should have only 1s (A == A)')
 
     # generate d * n random numbers from the Uniform dist.
     M = torch.rand((d, n))

@@ -9,10 +9,7 @@ from src.classes.utilFunc import column_max, fortran_reshape
 from src.classes.Bowl import Bowl
 import torch
 import numpy as np
-import math
 from tqdm import tqdm, trange
-# import matplotlib.pyplot as plt
-# import seaborn
 import pandas as pd
 # Set seed for reproducibility
 torch.manual_seed(123)
@@ -71,12 +68,11 @@ class Net(object):
 
         #### ORIGINALLY IN THE SETTINGS FILE #####
         self.settings["epochs"] = 5  # Training epochs
-        self.settings["timeStep"] = .0001
         self.settings["tgtStd"] = 0.00125
-        self.settings["TInit"] = -1
+        self.settings['T_init'] = -1
         self.settings["TMin"] = 0
         self.settings["TdecayRate"] = 0.05
-        self.settings["lambdaInit"] = 0.11
+        self.settings["lambdaInit"] = 1e-7
         self.settings["lambdaMin"] = 0.01
         self.settings["lambdaDecayRate"] = 0.75
         self.settings["maxSteps"] = 60000
@@ -84,7 +80,7 @@ class Net(object):
         self.settings["emaFactor"] = .05
         self.settings["diary"] = False
         self.settings["printInterval"] = 3000
-        self.settings["saveFile"] = 'Simulations/grassman.txt'
+        #self.settings["saveFile"] = 'Simulations/grassman.txt'
         self.settings["summary_file"] = "data/summary.txt"
         mean = torch.eye(self.grammar.bind.nF,
                          self.grammar.bind.nR)/self.grammar.bind.nF
@@ -108,14 +104,14 @@ class Net(object):
             'state', 'Harmony', 'H0', 'Q', 'q', 'Temp', 'time', 'ema_speed', 'speed']
 
         # Temperature params
-        self.vars['T_init'] = -1
+        self.vars['T_init'] = 1e-4
         self.vars['T_min'] = 0.
         self.vars['T_decay_rate'] = 1e-3
         # Bowl params
         self.vars['q_init'] = 2  # initial strength for the bowl
         self.vars['q_max'] = 200.
         self.vars['q_rate'] = 10.
-        self.vars['bowl_center'] = 0.5
+        self.vars['bowl_center'] = 0.05
         self.vars['bowl_strength'] = None
         self.vars['beta_min_offset'] = 0.1
         # Time step params
@@ -123,17 +119,38 @@ class Net(object):
         self.vars['min_dt'] = 0.0005
         self.vars['dt'] = 0.001
         # Training traces
-        self.vars['s_trace'] = None
         self.vars['prev_s'] = None
         self.vars['Harmony_trace'] = None
         self.vars['speed_trace'] = None
         self.vars['ema_trace'] = None
         self.vars['lambda_trace'] = None
-        self.vars['time_trace'] = None
+        self.vars['temp_trace'] = None
         self.vars['TP_trace'] = None
         self.vars['TPnum_trace'] = None
         self.vars['TP_h_trace'] = None
         self.vars['TP_dist_trace'] = None
+        self.vars['S_trace'] = None
+
+    def create_full_traces(self):
+        self.full_traces = dict()
+        self.full_traces['Harmony_trace'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
+        self.full_traces['speed_trace'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
+        self.full_traces['ema_trace'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
+        self.full_traces['lambda_trace'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
+        self.full_traces['time_trace'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
+        self.full_traces['TP_trace'] = dict()
+        self.full_traces['TPnum_trace'] = dict()
+        self.full_traces['TP_h_trace'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
+        self.full_traces['TP_dist_trace'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
+        self.full_traces['S_trace'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps'], self.nSym))
 
     def reset(self):
         pass  # TODO:
@@ -458,17 +475,18 @@ class Net(object):
         self.vars['lambda_rec'] = self.recommend_L()
         # Check lambdas
         # 1e-2 tolerance #TODO: review tol
-        if abs(self.settings['lambdaInit'] - self.vars['lambda_rec']) > 1e-3:
+        if abs(self.settings["lambdaInit"] - self.vars['lambda_rec']) > 1e-3:
             print(
                 f"LAMBDA RECOMMENDED: {self.vars['lambda_rec']}, ACTUAL LAMBDA = {self.settings['lambdaInit']}")
             choice = input(
-                "If you want to change to the recommended value press 'y', else any other key:")
+                "If you want to change to the recommended Lambda value press 'y', else any other key:")
             if choice.lower() == 'y':
-                # TODO: clean this chaos up.... What does belong to settings, what to vars, what to encodings?
                 self.vars['lambdaInit'] = self.vars['lambda_rec']
             else:
-                self.vars['lambdaInit'] = self.settings['lambdaInit']
+                self.vars['lambdaInit'] = self.settings["lambdaInit"]
             self.logger(lambda_value=self.vars['lambdaInit'])
+        else:
+            self.vars['lambdaInit'] = self.settings["lambdaInit"]
 
         self.vars['T_rec'] = self.recommend_T()
         # Check Temperatures
@@ -480,6 +498,8 @@ class Net(object):
             if choice.lower() == 'y':
                 self.vars['T_init'] = self.vars['T_rec']
                 self.logger(new_temperature=self.vars['T_rec'])
+        else:
+            self.vars['T_init'] = self.settings['T_init']
 
     def recommend_Q(self):
         """ The value of the param Q ensures that the weights of the final weight matrix
@@ -541,6 +561,7 @@ class Net(object):
 
         # Collect external inputs
         self.readInput()
+        self.create_full_traces()
 
         # Initialize Lotka Volterra
         self.LV_Matrices()
@@ -563,7 +584,7 @@ class Net(object):
 
         # Save the numbers of TP final states
         self.final_TPnum = torch.zeros(
-            (self.nStimuli, self.settings['epochs']))
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
 
         # Reaction times
         self.reaction_times = torch.zeros(
@@ -667,13 +688,13 @@ class Net(object):
         for epoch in trange(self.settings['epochs'], desc="Epoch routine:"):
             for stimulus in trange(self.nStimuli, desc=f"Stimulus routine:"):
                 stim_vec = self.stimuli[stimulus, :, :]
-                diverge_prob, harmony = self.process_stimulus(stim_vec)
+                diverge, harmony = self.process_stimulus(stim_vec)
                 # Update after stimulus processing
-                self.update_after_stim()
+                self.update_after_stim(
+                    nStimulus=stimulus, epoch=epoch, diverge=diverge)
                 print(
                     f"\nLast best Harmony: {float(harmony)}\n")
             # Update values after each epoch
-            self.update_after_epoch()
         self.final_update()
 
     # -----------------------  PROCESSING AND UPDATE ---------------------------------
@@ -681,10 +702,58 @@ class Net(object):
         """Process a single stimulus."""
         diverge_prob = False
         self.init_for_run(stimulus)
-        harmony = self.calc_max_Harmony()
+        harmony, state, stateC = self.calc_max_Harmony()
 
         # Update after each step
         self.updateAfterStep(harmony)
+        self.consoleLog_step()
+
+        # Loop over steps ~30 000 steps
+        for step in range(1, self.settings['maxSteps']+1):
+            self.vars['step'] = step
+
+            # Compute step components
+            self.Hg = self.calc_harmony_dynamics()  # Harmony gradient
+            self.LV_c, self.LV_s = self.LotkaVolterra_Dynamics()  # Lotka gradient
+            self.add_noise()  # add noise
+
+            # Copy the actual tensor to prev_S (RNN)
+            self.stateC = self.toConceptual(self.state)
+            self.state_prev = self.state.clone().detach()
+            self.stateC_prev = self.stateC.clone().detach()
+
+            # Now update the actual state
+            self.state += self.vars['dt'] * (self.vars['lambda'] * self.Hg + (
+                1-self.vars['lambda']) * self.LV_s) + self.noise
+            self.stateC = self.toConceptual(self.state)
+
+            if self.check_overflow():
+                diverge_prob = True
+                print(f"Net overflowed at step: {step}")
+                break
+
+            harmony = self.calc_harmony()
+            self.updateAfterStep(harmony=harmony)
+            # Update Animation
+            # Print information if step % print_every == 0
+            self.consoleLog_step()
+
+            # Update Lambda and Temperature!
+            self.update_lambda_T()
+
+            if self.check_convergency():
+                print(
+                    f"The net has converged at step {self.vars['step']}, nearest State: {self.vars['TP_trace']}")
+                break
+
+        if diverge_prob:
+            # Don't use this step
+            self.vars['step'] -= 1
+        if self.vars['step'] == self.settings['maxSteps']:
+            print("FINAL STEP")
+            print(
+                f"The net has reached the maximum number of steps {self.settings['maxSteps']}")
+            self.consoleLog_step()
 
         return diverge_prob, harmony
 
@@ -697,28 +766,72 @@ class Net(object):
         TP_state, winners, state_name, binding, Cdist, Sdist, state_num, TP_h = self.calc_nearest_state()
         self.vars['winners'] = winners
         self.vars['symBindings_winners'] = binding
-        self.vars['s_trace'] = self.state
-        self.vars['Harmony_trace'] = harmony
-        self.vars['speed_trace'] = self.calc_speed()
-        self.vars['ema_trace'] = self.calc_ema()
-        self.vars['lambda_trace'] = self.vars['lambda']
-        self.vars['time_trace'] = self.vars['T']
-        self.vars['TP_trace'] = state_name
-        self.vars['TPnum_trace'] = state_num
-        self.vars['TP_h_trace'] = TP_h
-        self.vars['TP_dist_trace'] = Cdist
+        self.vars['S_trace'][self.vars['step'], :] = self.state.T
+        self.vars['Harmony_trace'][self.vars['step']] = harmony
+        self.vars['speed_trace'][self.vars['step']] = self.calc_speed()
+        self.vars['ema_trace'][self.vars['step']] = self.calc_ema()
+        self.vars['lambda_trace'][self.vars['step']] = self.vars['lambda']
+        self.vars['temp_trace'][self.vars['step']] = self.vars['T']
+        self.vars['TP_trace'].append(state_name)
+        self.vars['TPnum_trace'][self.vars['step']] = state_num
+        self.vars['TP_h_trace'][self.vars['step']] = TP_h
+        self.vars['TP_dist_trace'][self.vars['step']] = Cdist
 
         # Log the updated values
         self.logger(step=self.vars['step'])
         self.logger(traces=self.vars)
 
-    def update_after_stim(self):
-        pass
+    def update_after_stim(self, nStimulus, epoch, diverge):
+        """Update values and traces after each stimulus"""
+        H, s, C = self.calc_max_Harmony()
 
-    def update_after_epoch(self):
+        # Update traces
+        self.vars['maxHarmony'][:, :, nStimulus, epoch] = C
+
+        # Update finalStates traces
+        inp = self.inputNames[nStimulus] + "/" + str(epoch)
+        self.final_TPStates[inp] = self.vars['TP_trace'][-1]
+        self.final_TPnum[nStimulus, epoch, :] = self.vars['TPnum_trace']
+        self.reaction_times[nStimulus, epoch] = diverge
+        self.update_full_traces(nStimulus=nStimulus, epoch=epoch)
+
+        self.logger(fp="data/stimuli_summary.txt",
+                    stimulus_epoch=str(nStimulus)+"_"+str(epoch))
+        self.logger(fp="data/stimuli_summary.txt",
+                    final_states=self.final_TPStates)
+        self.logger(fp="data/stimuli_summary.txt",
+                    final_TP_num=self.final_TPnum)
+        self.logger(fp="data/stimuli_summary.txt",
+                    full_traces=self.full_traces)
+
+    def update_full_traces(self, nStimulus, epoch):
+        """Update full traces tensors"""
+        self.full_traces['Harmony_trace'][nStimulus,
+                                          epoch, :] = self.vars['Harmony_trace']
+        #self.full_traces['speed_trace'][nStimulus, epoch, : ] = self.vars['speed_trace']
+        #self.full_traces['ema_trace'][nStimulus, epoch, : ] = self.vars['ema_trace']
+        self.full_traces['lambda_trace'][nStimulus,
+                                         epoch, :] = self.vars['lambda_trace']
+        self.full_traces['time_trace'][nStimulus,
+                                       epoch, :] = self.vars['temp_trace']
+        self.full_traces['TP_h_trace'][nStimulus,
+                                       epoch, :] = self.vars['TP_h_trace']
+        self.full_traces['TP_dist_trace'][nStimulus,
+                                          epoch, :] = self.vars['TP_dist_trace']
+        self.full_traces['S_trace'][nStimulus,
+                                    epoch, :, :] = self.vars['S_trace']
+
+        key = self.inputNames[nStimulus] + "/rep_" + str(epoch)
+        self.full_traces['TP_trace'][key] = self.vars['TP_trace']
+        self.full_traces['TPnum_trace'][key] = self.vars['Harmony_trace']
+
+    def update_after_epoch(self, winnerlist):
+        # TODO: Do some update after each epoch
         pass
 
     def final_update(self):
+        "Final update after all epochs"
+        # TODO: Implement accuracy metrics
         pass
 
     # ----------------------- AUXILIARY TO PROCESSING ----------------------
@@ -735,18 +848,20 @@ class Net(object):
         """
         # Initialize training traces
         max_steps = self.settings['maxSteps']
-        self.vars['s_trace'] = torch.zeros((max_steps, self.nSym))
+        self.vars['S_trace'] = torch.zeros((max_steps, self.nSym))
         self.vars['prev_s'] = torch.tensor(
             [float('inf')]) * torch.ones((self.nSym, 1))
-        self.vars['Harmony_trace'] = torch.zeros((max_steps, 1))
-        self.vars['speed_trace'] = torch.zeros((max_steps, 1))
-        self.vars['ema_trace'] = torch.zeros((max_steps, 1))
-        self.vars['lambda_trace'] = torch.zeros((max_steps, 1))
-        self.vars['time_trace'] = torch.zeros((max_steps, 1))
-        self.vars['TP_trace'] = torch.zeros((max_steps, 1))
-        self.vars['TPnum_trace'] = torch.zeros((max_steps, 1))
-        self.vars['TP_h_trace'] = torch.zeros((max_steps, 1))
-        self.vars['TP_dist_trace'] = torch.zeros((max_steps, 1))
+        self.vars['Harmony_trace'] = torch.zeros(max_steps)
+        self.vars['speed_trace'] = torch.zeros(max_steps)
+        self.vars['ema_trace'] = torch.zeros(max_steps)
+        self.vars['lambda_trace'] = torch.zeros(max_steps)
+        self.vars['temp_trace'] = torch.zeros(max_steps)
+        self.vars['TP_trace'] = list()
+        self.vars['TPnum_trace'] = torch.zeros(max_steps)
+        self.vars['TP_h_trace'] = torch.zeros(max_steps)
+        self.vars['TP_dist_trace'] = torch.zeros(max_steps)
+        self.vars['maxHarmony'] = torch.empty(
+            self.grammar.nF, self.grammar.nR, self.nStimuli, self.settings['epochs'])  # check this size
 
         # Create the representations for the stimulus
         stimulus = fortran_reshape(
@@ -775,11 +890,11 @@ class Net(object):
             - the maximum Harmony of the actual state
 
         """
-        self.inpS = self.toNeural(self.inpC)
-        self.state = torch.linalg.pinv(self.W).matmul(-self.B - self.inpS)
-        self.stateC = self.toConceptual(self.state)
-        harmony = self.calc_harmony()
-        return harmony
+        inpS = self.toNeural(self.inpC)
+        state = torch.linalg.pinv(self.W).matmul(-self.B - inpS)
+        stateC = self.toConceptual(state)
+        harmony = self.calc_harmony(state=state)
+        return harmony, state, stateC
 
     def calc_harmony(self, state=None):
         """Calculate Harmony value"""
@@ -787,9 +902,17 @@ class Net(object):
         if state is None:
             state = self.state
 
-        harmony = (self.B + self.inpS).T.matmul(self.state)
-        harmony += .5 * self.state.T.matmul(self.W).matmul(self.state)
+        harmony = (self.B + self.inpS).T.matmul(state)
+        harmony += .5 * state.T.matmul(self.W).matmul(state)
         return harmony
+
+    def calc_harmony_dynamics(self):
+        """Calculate the Harmony Gradient
+
+        HarmonyG = bias + input + W * s 
+        """
+        Hg = self.B + self.inpS + self.W.matmul(self.state)
+        return Hg
 
     def calc_speed(self):
         """Calc the speed at which the Learning is improving"""
@@ -797,7 +920,7 @@ class Net(object):
             target_tensor = torch.abs(self.state - self.state_prev)
             speed = column_max(target_tensor) / self.vars['dt']
         else:  # this is the first step, no calculation is possible
-            speed = None
+            speed = float('NaN')
         return speed
 
     def calc_ema(self):
@@ -805,21 +928,12 @@ class Net(object):
         emaFactor = self.settings['emaFactor']
         stepFactor = emaFactor ** self.vars['dt']
         if self.vars['step'] == 0:
-            ema = None
+            ema = float('NaN')
         elif self.vars['step'] == 1:
             ema = self.vars['speed_trace'][1]
-        else:  # FIXME: Here something is missing
-            ema = stepFactor * self.vars['emaSpeed_trace'][self.vars['step'] - 1] + (
+        else:
+            ema = stepFactor * self.vars['ema_trace'][self.vars['step'] - 1] + (
                 1 - stepFactor)*self.vars['speed_trace'][self.vars['step']]
-        return ema
-
-    @staticmethod
-    def emaSpeed(array, factor):
-        # FIXME: At moment not used
-        """Calc the exponential moving average (EMA) of a vector"""
-        ema = array.clone().detach()
-        for time in range(1, array.size()):
-            ema[time] = factor * ema[time-1] + (1 - factor) * array[time]
         return ema
 
     def calc_nearest_state(self):
@@ -887,6 +1001,55 @@ class Net(object):
         """Calculate the L2 Norm"""
         norm = torch.sqrt(torch.sum(array * array))
         return norm
+
+    def add_noise(self):
+        """Add noise to the system according
+            to the T parameter"""
+        self.noise = torch.rand(self.state.shape).double()
+        self.noise *= torch.sqrt(2 *
+                                 torch.tensor(self.vars['T'])*torch.tensor(self.vars['dt']))
+
+    def check_overflow(self):
+        """Check if the training converged or diverged"""
+        self.stateC = self.toConceptual(self.state)
+
+        check_inf = torch.any(torch.isinf(self.stateC)) or torch.any(
+            torch.isinf(self.state))
+        check_nan = torch.any(torch.isnan(self.stateC)) or torch.any(
+            torch.isnan(self.state))
+
+        if check_inf or check_nan:
+            return True
+        else:
+            return False
+
+    def check_convergency(self):
+        """Check if the Net has converged"""
+        if self.vars['ema_trace'][self.vars['step']] <= self.settings["emaSpeedTol"]:
+            return True
+        else:
+            return False
+
+    def update_lambda_T(self):
+        """ After each step check the values of Lambda and T
+        and update them"""
+
+        # Set rate if we're at the beginning
+        if self.vars['step'] <= 1:
+            self.vars['lambdaDecayRate'] = self.settings['lambdaDecayRate']
+
+        incremental_lambda = 1 - \
+            (1-self.vars['lambdaDecayRate'])**self.vars['dt']
+        incremental_temp = 1-(1-self.vars['T_decay_rate'])**self.vars['dt']
+
+        # Update lambda
+        self.vars['lambda'] -= incremental_lambda*(
+            self.vars['lambda']-self.settings["lambdaMin"])
+
+        # Update T
+        self.vars['T'] -= incremental_temp * \
+            (self.vars['T']-self.settings["TMin"])
+
     # -----------------------  VISUALIZATION -------------------------------
 
     def plot(self):  # TODO:
@@ -894,8 +1057,9 @@ class Net(object):
 
     # -----------------------  SAVE -----------------------------------------
 
-    def logger(self, **kwargs):
-        fp = self.settings['summary_file']
+    def logger(self, fp=None, **kwargs):
+        if fp is None:
+            fp = self.settings['summary_file']
         with open(fp, "a+", encoding="utf-8") as summary:
             for key, value in kwargs.items():
                 if isinstance(value, dict):
@@ -910,8 +1074,16 @@ class Net(object):
                     summary.write(str(value))
                     summary.write("\n" + "-"*80 + "\n\n")
 
-    def save_net(self):
-        pass
+    def consoleLog_step(self):
+        """Print infos on the console at each n step"""
+        n = self.settings["printInterval"]
+        if self.vars['step'] == 0 or self.vars['step'] % n == 0:
+            print("\n" + "-"*80 + "\n")
+            print(
+                f"STEP : {self.vars['step']}\t Lambda : {self.vars['lambda']}\t Harmony: {self.vars['Harmony_trace']}\n")
+            C = self.toConceptual(self.state)
+            print(f"\nConceptual Matrix: {C}")
+            print(f"Nearest TP: {self.vars['TP_trace'][-1]}")
 
     def __repr__(self):
         return "GSC Network"
