@@ -75,7 +75,7 @@ class Net(object):
 
         #### ORIGINALLY IN THE SETTINGS FILE #####
         self.settings["epochs"] = 5  # Training epochs
-        self.settings["tgtStd"] = 0.00125
+        self.settings["tgtStd"] = 0.00000125
         self.settings['T_init'] = 1e-6
         self.settings["TMin"] = 0
         self.settings["TdecayRate"] = 0.05
@@ -87,10 +87,8 @@ class Net(object):
         self.settings["emaFactor"] = .05
         self.settings["diary"] = False
         self.settings["printInterval"] = 3000
-        #self.settings["saveFile"] = 'Simulations/grassman.txt'
         self.settings["summary_file"] = "data/summary.txt"
-        mean = torch.ones(self.grammar.bind.nF,
-                         self.grammar.bind.nR)/self.grammar.bind.nF
+        mean = torch.ones(self.grammar.bind.nF, self.grammar.bind.nR)/self.grammar.bind.nF
         self.settings["initStateMean"] = mean
         self.settings["initStateStdev"] = .0125
         self.settings['clamped'] = False
@@ -106,17 +104,13 @@ class Net(object):
 
         """
         self.vars = dict()
-        # TODO: somewhen toward ends I'll have to update this list
-        self.vars["var_names"] = [
-            'state', 'Harmony', 'H0', 'Q', 'q', 'Temp', 'time', 'ema_speed', 'speed']
-
         # Temperature params
         self.vars['T_init'] = 1e-4
-        self.vars['T_min'] = 0.
+        self.vars['T_min'] = 0.0
         self.vars['T_decay_rate'] = 1e-3
         # Bowl params
-        self.vars['q_init'] = 20  # initial strength for the bowl
-        #self.vars['q_max'] = 200.
+        self.vars['q_init'] = 16  # initial strength for the bowl
+        self.vars['q_max'] = 150.
         #self.vars['q_rate'] = 10.
         # Check if we can improve learning, adjusting this value
         self.vars['bowl_center'] = 0.5
@@ -125,7 +119,7 @@ class Net(object):
         # Time step params
         self.vars['max_dt'] = 0.01
         self.vars['min_dt'] = 0.0005
-        self.vars['dt'] = 0.001
+        self.vars['dt'] = 0.1
         # Training traces
         self.vars['prev_s'] = None
         self.vars['Harmony_trace'] = None
@@ -360,7 +354,11 @@ class Net(object):
         self.bowl = Bowl(self)
         self.vars['bowl_strength'] = self.vars['q_init'] = self.bowl.strength + self.vars['beta_min_offset']
         if self.vars['bowl_strength'] <= self.vars['beta_min_offset']:
-            raise ValueError("Bowl overflow... strength lower than set tolerance. Modify the tolerance or fix the bug!")
+            print(f"Bowl overflow -- Set to the minimum value :  {self.vars['beta_min_offset']}")
+            #aise ValueError("Bowl overflow... strength lower than set tolerance. Modify the tolerance or fix the bug!")
+            self.vars['bowl_strength'] = self.vars['beta_min_offset']
+        if self.vars['bowl_strength'] > self.vars['q_max']:
+            self.vars['bowl_strength'] = self.vars['q_max']
 
         """
         if self.vars['q_init'] != self.bowl.strength + self.vars['beta_min_offset']:
@@ -698,7 +696,7 @@ class Net(object):
         for epoch in trange(self.settings['epochs'], desc="Epoch routine:"):
             for stimulus in trange(self.nStimuli, desc=f"Stimulus routine:"):
                 stim_vec = self.stimuli[stimulus, :, :]
-                diverge, harmony = self.process_stimulus(stim_vec)
+                diverge, harmony = self.process_stimulus(stim_vec, epoch, stimulus)
                 # Update after stimulus processing
                 self.update_after_stim(
                     nStimulus=stimulus, epoch=epoch, diverge=diverge)
@@ -708,7 +706,7 @@ class Net(object):
         self.final_update()
 
     # -----------------------  PROCESSING AND UPDATE ---------------------------------
-    def process_stimulus(self, stimulus):
+    def process_stimulus(self, stimulus, epoch, stimNum):
         """Process a single stimulus."""
         diverge_prob = False
         self.init_for_run(stimulus)
@@ -719,7 +717,7 @@ class Net(object):
 
         # Update after each step
         self.updateAfterStep(harmony)
-        self.consoleLog_step()
+        self.consoleLog_step(epoch=epoch+1, stimNum=stimNum+1)
 
         # Loop over steps ~30 000 steps
         for step in range(1, self.settings['maxSteps']):
@@ -749,7 +747,7 @@ class Net(object):
             self.updateAfterStep(harmony=harmony)
             # Update Animation
             # Print information if step % print_every == 0
-            self.consoleLog_step()
+            self.consoleLog_step(epoch=epoch+1, stimNum=stimNum+1)
 
             # Update Lambda and Temperature!
             self.update_lambda_T()
@@ -1091,13 +1089,16 @@ class Net(object):
                     summary.write(str(value))
                     summary.write("\n" + "-"*80 + "\n\n")
 
-    def consoleLog_step(self):
+    def consoleLog_step(self, **kwargs):
         """Print infos on the console at each n step"""
         n = self.settings["printInterval"]
         if self.vars['step'] == 0 or self.vars['step'] % n == 0:
             print("\n" + "-"*80 + "\n")
             print(
                 f"STEP : {self.vars['step']}\t Lambda : {self.vars['lambda']}\t Harmony: {self.vars['Harmony_trace'][self.vars['step']]}\n")
+            if kwargs is not None:
+                for k, v in kwargs.items():
+                    print(f"{k} : {v}")
             C = self.toConceptual(self.state)
             print(f"\nConceptual Matrix: {C}")
             print(f"Nearest TP: {self.vars['TP_trace'][-1]}")

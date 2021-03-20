@@ -1,4 +1,8 @@
-# **Gra**dient **S**ymbolic **Com**putation (grascom)
+# grascom
+
+**Gra**dient **S**ymbolic **Com**putation (grascom)
+___
+
 
 This project is a Python3 implementation of the GSC (Smolensky & Legendre 2016, Cho, Goldrick & Smolensky 2020).
 The main inspiration for the code comes from the MATLAB program LDNet (v. 1.5). The actual version is however not a simple translation in Python. Main differences of grascom compared with LDNet:
