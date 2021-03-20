@@ -5,6 +5,7 @@ __date__ : Februar 201
 __author__ : A. Masotti (on the model of LDNet 1.5)
 
 """
+import scipy
 from src.classes.utilFunc import column_max, fortran_reshape
 from src.classes.Bowl import Bowl
 import torch
@@ -12,7 +13,7 @@ import numpy as np
 from tqdm import tqdm, trange
 import pandas as pd
 # Set seed for reproducibility
-torch.manual_seed(123)
+#torch.manual_seed(123)
 
 
 class Net(object):
@@ -51,8 +52,14 @@ class Net(object):
         # Preprare the network to be run
         self.stimuli = None
         self.extData_path = extData_path
+
+        # Read external data:
+        self.readInput()
+
         # General Setup
         self.setup_net()
+
+
 
     # -----------------------  GENERAL SETTINGS ------------------------------
 
@@ -69,23 +76,23 @@ class Net(object):
         #### ORIGINALLY IN THE SETTINGS FILE #####
         self.settings["epochs"] = 5  # Training epochs
         self.settings["tgtStd"] = 0.00125
-        self.settings['T_init'] = -1
+        self.settings['T_init'] = 1e-6
         self.settings["TMin"] = 0
         self.settings["TdecayRate"] = 0.05
         self.settings["lambdaInit"] = 1e-7
         self.settings["lambdaMin"] = 0.01
-        self.settings["lambdaDecayRate"] = 0.75
-        self.settings["maxSteps"] = 60000
+        self.settings["lambdaDecayRate"] = 0.65
+        self.settings["maxSteps"] = 10000
         self.settings["emaSpeedTol"] = 0.002
         self.settings["emaFactor"] = .05
         self.settings["diary"] = False
         self.settings["printInterval"] = 3000
         #self.settings["saveFile"] = 'Simulations/grassman.txt'
         self.settings["summary_file"] = "data/summary.txt"
-        mean = torch.eye(self.grammar.bind.nF,
+        mean = torch.ones(self.grammar.bind.nF,
                          self.grammar.bind.nR)/self.grammar.bind.nF
         self.settings["initStateMean"] = mean
-        self.settings["initStateStdev"] = .025
+        self.settings["initStateStdev"] = .0125
         self.settings['clamped'] = False
 
     def _training_vars(self):
@@ -108,10 +115,11 @@ class Net(object):
         self.vars['T_min'] = 0.
         self.vars['T_decay_rate'] = 1e-3
         # Bowl params
-        self.vars['q_init'] = 2  # initial strength for the bowl
-        self.vars['q_max'] = 200.
-        self.vars['q_rate'] = 10.
-        self.vars['bowl_center'] = 0.05
+        self.vars['q_init'] = 20  # initial strength for the bowl
+        #self.vars['q_max'] = 200.
+        #self.vars['q_rate'] = 10.
+        # Check if we can improve learning, adjusting this value
+        self.vars['bowl_center'] = 0.5
         self.vars['bowl_strength'] = None
         self.vars['beta_min_offset'] = 0.1
         # Time step params
@@ -160,22 +168,22 @@ class Net(object):
         """Retrieve the index of a specific binding"""
         try:
             return self.bind2index[bindName]
-        except KeyError:
-            raise f"The binding {bindName} is not in the general list... check your input file!"
+        except:
+            raise KeyError(f"The binding {bindName} is not in the general list... check your input file!")
 
     def find_role(self, roleName):
         """Retrieve the index of a specific role"""
         try:
             return self.role2index[roleName]
-        except KeyError:
-            raise f"The role {roleName} is not in the general list... check your input file!"
+        except:
+            raise KeyError(f"The role {roleName} is not in the general list... check your input file!")
 
     def find_filler(self, fillerName):
         """Retrieve the index of a specific binding"""
         try:
             return self.filler2index[fillerName]
-        except KeyError:
-            raise f"The Filler {fillerName} is not in the general list... check your input file!"
+        except:
+            raise KeyError(f"The Filler {fillerName} is not in the general list... check your input file!")
 
     # ----------------------- SETUP ROUTINE ------------------------------------
 
@@ -200,8 +208,7 @@ class Net(object):
         self.state_prev = self.toNeural(matrix=self.stateC_prev)
 
         self.inpC = torch.zeros(self.nSym, dtype=torch.double)
-        self.inpC_prev = torch.zeros(
-            self.nSym, dtype=torch.double)
+        self.inpC_prev = torch.zeros(self.nSym, dtype=torch.double)
 
         self.inpS = self.toNeural(self.inpC)
         self.inpS_prev = self.toNeural(self.inpC_prev)
@@ -212,11 +219,7 @@ class Net(object):
         # self.debug_copies()
 
         # Bowl
-        self.bowl = Bowl(self)
-        self.vars['bowl_center'] = self.bowl.center
-        self.vars['bowl_strength'] = self.bowl.strength + \
-            self.vars['beta_min_offset']
-        self.vars['zeta_bowl'] = self.toNeural(self.vars['bowl_center'])
+        self._bowl_params()
 
         # Calculate the recommended Lambda and Temp values:
         self.check_Q_T_lambda()
@@ -281,8 +284,7 @@ class Net(object):
         self.TP = torch.kron(self.R, self.F).double()
         # create the inverse if TP is a square matrix:
         # Use the Moore-Penrose pseudoinverse if TP is not square
-        self.TPinv = torch.linalg.pinv(self.TP, hermitian=True)
-        self.Gc = torch.mm(self.TPinv.T, self.TP)
+        self.TPinv = torch.inverse(self.TP)
 
     def compute_neural_biases(self, dist="zero"):
         """Compute the Biases Matrix for the Neural space.
@@ -302,7 +304,7 @@ class Net(object):
 
         # Update
         for i in range(self.nSym):
-            b_i = self.TP[:, i]
+            b_i = self.TP[:, i].unsqueeze(1)
             update_value = (harmonies[i] * b_i) / torch.matmul(b_i.T, b_i)
             biases += update_value.reshape((self.nSym, 1))
         return biases
@@ -323,15 +325,14 @@ class Net(object):
 
         # Update using the Hcc infos:
         for i in range(self.nSym):
-            w_i = self.TP[:, i]  # take the i-th binding
+            w_i = self.TP[:, i].unsqueeze(1)  # take the i-th binding
             for j in range(i+1):  # just operate in the lower triangle, the rest is symmetric
-                w_j = self.TP[:, j]  # take the j-th binding
+                w_j = self.TP[:, j].unsqueeze(1)  # take the j-th binding
                 if i != j:
-                    W += (harmonies[i, j] * (w_i.matmul(w_j.T) + w_j.matmul(w_i.T))
-                          ) / (w_i.T.matmul(w_i) * w_j.T.matmul(w_j))
+                    k = 1
                 else:
-                    W += .5 * (harmonies[i, j] * (w_i.matmul(w_j.T) + w_j.matmul(w_i.T))) / (
-                        w_i.T.matmul(w_i)*w_j.T.matmul(w_j))
+                    k = 0.5
+                W += k * (harmonies[i, j] * (w_i @ w_j.T + w_j @ w_i.T)) / ((w_i.T @ w_i) @ (w_j.T @ w_j))
         return W
 
     def _set_weights(self):
@@ -348,6 +349,32 @@ class Net(object):
         # Alternative
         # self.B = self.TPinv.T.matmul(self.Bc)
         self.Bc = self.TP.T.matmul(self.B)
+
+    def _bowl_params(self):
+        """Set up the bowl parameters.
+            center : passed by the user as hyperparameter.
+            strength: a very important value, that constraints the quantization.
+            zeta : the neural version of the center of the bowl
+
+        """
+        self.bowl = Bowl(self)
+        self.vars['bowl_strength'] = self.vars['q_init'] = self.bowl.strength + self.vars['beta_min_offset']
+        if self.vars['bowl_strength'] <= self.vars['beta_min_offset']:
+            raise ValueError("Bowl overflow... strength lower than set tolerance. Modify the tolerance or fix the bug!")
+
+        """
+        if self.vars['q_init'] != self.bowl.strength + self.vars['beta_min_offset']:
+            print(f"Recommended bowl strength : {self.bowl.strength} \t Actual value: {self.vars['q_init']}")
+            choice = input("Do you want to set the value to the recommended one: (y/n): ")
+            if choice.lower() == "y":
+                self.vars['bowl_strength'] = self.vars['q_init'] = self.bowl.strength + self.vars['beta_min_offset']
+            else:
+                self.vars['bowl_strength'] = self.vars['q_init']
+        else:
+            self.vars['bowl_strength'] = self.vars['q_init']
+        """
+        self.vars['zeta_bowl'] = self.toNeural(self.bowl.center)
+        print(f"Value for Q set to {self.vars['bowl_strength']}")
 
     def merge_bowl(self):
         """Add bowl biases and weights to the Harmony biases and weights."""
@@ -501,43 +528,17 @@ class Net(object):
         else:
             self.vars['T_init'] = self.settings['T_init']
 
-    def recommend_Q(self):
-        """ The value of the param Q ensures that the weights of the final weight matrix
-        are negative definite, which is an important condition for the distribution to be stationary
-
-        The mechanics is pretty simple: we must just find a value that is larger than the greatest positive eigvalue in Wc
-
-        # TODO: The eigvectors and eigvals differ between MATLAB, Numpy and Pytorch probably due to different
-        algorithms viz. error in the numerical algorithm. I should check if this is an issue or it works.
-
-        """
-        eigvals_wc = torch.linalg.eigvalsh(self.Wc)
-        max_eigvalue = torch.max(eigvals_wc)
-        q_nd = max(0, max_eigvalue)
-        print(f"Eigenvalues of the weight matrix found: \n {eigvals_wc}\n")
-
-        # Find the smallest q that puts the Harmony maximum between [0,1]
-        bmin = torch.min(self.Bc) - self.settings['maxInp']
-        bmax = torch.max(self.Bc) + self.settings['maxInp']
-
-        # Use the bowl parameter to calculate q
-        q_0 = -bmin/self.domain.z
-        q_1 = (bmax + max_eigvalue) / \
-            (1 - self.vars['bowl_center'])  # Will this work?
-        q_range = torch.max([q_0, q_1, q_nd])
-
-        return q_range, q_nd
-
     def recommend_L(self):
         """Recommended lambda init value
 
         This function is mathematically problematic. See Issue #2
-        # TODO: see above eigvals Pytorch
+        # TODO: The eigvectors and eigvals differ between MATLAB, Numpy and Pytorch probably due to different
+        algorithms viz. error in the numerical algorithm. I should check if this is an issue or it works.
         """
 
         min_eigenvalue = torch.min(torch.linalg.eigvalsh(self.Wc))
-        l = 1 / (1 + 4*torch.abs(min_eigenvalue - self.vars['q_init']))
-        return l
+        lamBda = 1 / (1 + 4*torch.abs(min_eigenvalue - self.vars['q_init']))
+        return lamBda
 
     def recommend_T(self):
         """ Compute the recommended temperature
@@ -559,16 +560,13 @@ class Net(object):
         self.inpS = self.initializer((self.nSym, 1))
         self.inpC = self.initializer((self.nSym, 1))
 
-        # Collect external inputs
-        self.readInput()
+        # Create full traces
         self.create_full_traces()
 
         # Initialize Lotka Volterra
         self.LV_Matrices()
 
         # Initialize Temperature and Lambda
-        # TODO: Does it makes sense to calculate, recommend and initialize
-        # if we then just allocate zero values here?
         self.vars['T'] = 0
         self.vars['lambda'] = 0
 
@@ -632,6 +630,7 @@ class Net(object):
     # ---------------------- UPDATE WEIGHT AND BIASES --------------------
 
     def set_singleWeight(self, bind1, bind2, weight, symmetric=True):
+        #FIXME: This is  probably not used
         idx1 = self.find_bindings(bind1)
         idx2 = self.find_bindings(bind2)
         if symmetric:
@@ -644,7 +643,7 @@ class Net(object):
 
     def set_bias(self, bind, bias):
         idx = self.find_bindings(bind)
-        self.bC[idx] = bias
+        self.Bc[idx] = bias
 
         # Update the neural Bias matrix
         self._set_bias()
@@ -685,6 +684,17 @@ class Net(object):
 
 
         """
+        #save copy of the initialized matrices
+        scipy.io.savemat("data/initialized_mats.mat", mdict= {"B" : self.B.numpy(), "Bc" : self.Bc.numpy(),
+                                             "TP" : self.TP.numpy(), "TPinv" : self.TPinv.numpy(),
+                                             "W" : self.W.numpy(), "Wc" : self.Wc.numpy(),
+                                             "Hcc" : self.Hcc.numpy(), "Hc" : self.Hc.numpy(),
+                                             "stimuli" : self.stimuli.numpy(),
+                                             "bowl_center" : self.vars['bowl_center'],
+                                             "bowl_strength": self.vars['bowl_strength'],
+                                             "LVinh" : self.LV_inhM.numpy(), "LVc" : self.LV_c.numpy(),
+                                             "LVs" : self.LV_s.numpy()
+                                            })
         for epoch in trange(self.settings['epochs'], desc="Epoch routine:"):
             for stimulus in trange(self.nStimuli, desc=f"Stimulus routine:"):
                 stim_vec = self.stimuli[stimulus, :, :]
@@ -704,12 +714,15 @@ class Net(object):
         self.init_for_run(stimulus)
         harmony, state, stateC = self.calc_max_Harmony()
 
+        # Update bowl parameters (They depend on the stimulus)
+        self._bowl_params()
+
         # Update after each step
         self.updateAfterStep(harmony)
         self.consoleLog_step()
 
         # Loop over steps ~30 000 steps
-        for step in range(1, self.settings['maxSteps']+1):
+        for step in range(1, self.settings['maxSteps']):
             self.vars['step'] = step
 
             # Compute step components
@@ -823,7 +836,7 @@ class Net(object):
 
         key = self.inputNames[nStimulus] + "/rep_" + str(epoch)
         self.full_traces['TP_trace'][key] = self.vars['TP_trace']
-        self.full_traces['TPnum_trace'][key] = self.vars['Harmony_trace']
+        self.full_traces['TPnum_trace'][key] = self.vars['Harmony_trace'] #TODO: change this!
 
     def update_after_epoch(self, winnerlist):
         # TODO: Do some update after each epoch
@@ -874,6 +887,7 @@ class Net(object):
             (self.grammar.nF, self.grammar.nR)) * self.settings["initStateStdev"]
         self.initial_state = self.initial_state.double()
         self.state = self.toNeural(self.initial_state)
+        self.stateC = self.toConceptual(self.state)
 
         # Set Lambda and Temperature
         self.vars['T'] = self.vars['T_init']
@@ -952,10 +966,13 @@ class Net(object):
         return TP_state, winners, state_name, binding, Cdist, Sdist, state_num, TP_h
 
     def find_winner(self):
-        """Return a binary Matrix that implements the winner-takes-all strategy"""
+        """Return a binary Matrix that implements the winner-takes-all strategy
+        and the indices of the winning fillers.
+
+        """
 
         # Extract the max value of each col in the conceptual state matrix
-        winners_idx = column_max(self.stateC)
+        winners_idx = column_max(self.stateC, what='argmax')
 
         M = torch.zeros_like(self.stateC)
         # Populate the matrix
@@ -1080,7 +1097,7 @@ class Net(object):
         if self.vars['step'] == 0 or self.vars['step'] % n == 0:
             print("\n" + "-"*80 + "\n")
             print(
-                f"STEP : {self.vars['step']}\t Lambda : {self.vars['lambda']}\t Harmony: {self.vars['Harmony_trace']}\n")
+                f"STEP : {self.vars['step']}\t Lambda : {self.vars['lambda']}\t Harmony: {self.vars['Harmony_trace'][self.vars['step']]}\n")
             C = self.toConceptual(self.state)
             print(f"\nConceptual Matrix: {C}")
             print(f"Nearest TP: {self.vars['TP_trace'][-1]}")

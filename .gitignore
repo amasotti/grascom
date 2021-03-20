@@ -113,6 +113,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.idea/
+*.idea
 
 # Spyder project settings
 .spyderproject
@@ -139,7 +141,7 @@ dmypy.json
 cython_debug/
 
 # Notes
-# Ideas, TODO list
+# Ideas, TO-DO list
 Ideas.md 
 # Summary for debug
 testing.txt 
@@ -147,3 +149,5 @@ summary.txt
 stimuli_summary.txt
 # Test some auxialiary functions
 scratch_book.py
+# Backup for MATLAB double check
+*.mat

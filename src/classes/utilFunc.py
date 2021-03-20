@@ -5,7 +5,8 @@ Collections of auxiliary functions
 @author: A. Masotti (on the basis of the MATLAB code by Don Mathis)
 """
 import torch
-import numpy as np  # Just because Numpy has the "order='F'" option, then convert in tensor
+import numpy as np
+from scipy.io import savemat as sm
 
 # ------------------------------------------------------------------------------
 
@@ -103,3 +104,10 @@ def column_max(tensor, what="argmax"):
         for c in range(tensor.shape[1]):
             max_values[c] = torch.max(tensor[:, c])
     return max_values.long()
+
+
+def save_matlab(array, name):
+    """Create a backup of tensors in MATLAB format"""
+    path = "data/" + name
+    array = array.numpy()
+    sm(path, mdict={name : array})
