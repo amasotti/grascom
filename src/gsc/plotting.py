@@ -8,6 +8,7 @@ DO NOT USE
 """
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
 import numpy as np
 import torch
 
@@ -47,16 +48,41 @@ class Plot(object):
             idx_rev[ind] = torch.where(tp_num[stim, epoch, :] == value)[0][0]
 
         tph_trace = self.data['TP_h_trace']
-        harmonies = tph_trace[stim, epoch, tph_trace.long()]
+        harmonies = tph_trace[stim, epoch, idx_rev.long()]
         # Counts sorted
         sortVal, sortInd = torch.sort(counts)
         # Harmonies sorted
-        harmonies_sorted = harmonies[sortInd]
+        self.harmonies = harmonies[sortInd]
         # states sorted
         states_sorted = states[sortInd]
-        states_sorted = states_sorted.long().tolist()
-        states_names = self.stateName_list(states_sorted)
-        return states_names, states_sorted, sortVal
+        self.states = states_sorted.long().tolist()
+        self.statesNames = self.stateName_list(self.states)
+        self.stateCounts = (
+            sortVal.long() / torch.sum(sortVal).long()).tolist()
+
+        df = pd.DataFrame({"p(state)": self.stateCounts,
+                           "Outputs": self.statesNames})
+
+        prob_plot = sns.barplot(x="Outputs", y="p(state)", data=df)
+        prob_plot.set_title(
+            f"Output Probability (epoch {epoch}/stimulus {self.net.inputNames[stim]})")
+        if save:
+            fig = prob_plot.get_figure()
+            fig.savefig(outpath + "probabilities_ep" +
+                        str(epoch) + "_stimulus_" + str(stim))
+        plt.show()
+
+        df = pd.DataFrame({"H(state)": self.harmonies,
+                           "Outputs": self.statesNames})
+        harm_plot = sns.barplot(x="Outputs", y="H(state)", data=df)
+        harm_plot.set_title(
+            f"Output Harmonies (epoch {epoch}/stimulus {self.net.inputNames[stim]})")
+        if save:
+            fig = harm_plot.get_figure()
+            fig.savefig(outpath + "harmonies_ep" +
+                        str(epoch) + "_stimulus_" + str(stim))
+
+        plt.show()
 
     def stateName_list(self, states):
         stateNames = []

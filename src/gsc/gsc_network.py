@@ -19,7 +19,7 @@ import pandas as pd
 class Net(object):
     """The GSC Network"""
 
-    def __init__(self, grammar, extData_path="data/inp_pandas.csv"):
+    def __init__(self, grammar, extData_path="data/inp_pandas.csv", custom_settings=None):
 
         # The Harmonic Grammar
         self.grammar = grammar
@@ -41,6 +41,7 @@ class Net(object):
         self.index2bind = self.grammar.bind.index2bind
 
         #  Set up the settings dictionary
+        self.custom_settings = custom_settings
         self._define_settings()
         # Variables that will change/be updated while training
         self._training_vars()
@@ -72,15 +73,15 @@ class Net(object):
         self.settings['maxInp'] = 1
 
         #### ORIGINALLY IN THE SETTINGS FILE #####
-        self.settings["epochs"] = 2  # Training epochs
-        self.settings["tgtStd"] = 0.00000125
+        self.settings["epochs"] = 3  # Training epochs
+        self.settings["tgtStd"] = 12e-6
         self.settings['T_init'] = 1e-6
         self.settings["TMin"] = 0
         self.settings["TdecayRate"] = 0.05
         self.settings["lambdaInit"] = 1e-7
         self.settings["lambdaMin"] = 0.01
         self.settings["lambdaDecayRate"] = 0.65
-        self.settings["maxSteps"] = 6000
+        self.settings["maxSteps"] = 20000
         self.settings["emaSpeedTol"] = 0.002
         self.settings["emaFactor"] = .05
         self.settings["printInterval"] = 3000
@@ -90,6 +91,11 @@ class Net(object):
         self.settings["initStateMean"] = mean
         self.settings["initStateStdev"] = .0125
         self.settings['clamped'] = False
+
+        if self.custom_settings is not None:
+            for key, value in self.custom_settings.items():
+                if key in self.settings:
+                    self.settings[key] = value
 
     def _training_vars(self):
         """Variables to keep track in the learning phase
@@ -105,19 +111,20 @@ class Net(object):
         # Temperature params
         self.vars['T_init'] = 1e-4
         self.vars['T_min'] = 0.0
-        self.vars['T_decay_rate'] = 1e-3
+        self.vars['T_decay_rate'] = 1e-2
+        self.vars['lambda_min'] = 0.0001
         # Bowl params
         self.vars['q_init'] = 16  # initial strength for the bowl
         self.vars['q_max'] = 150.
         #self.vars['q_rate'] = 10.
         # Check if we can improve learning, adjusting this value
-        self.vars['bowl_center'] = 0.5
+        self.vars['bowl_center'] = 0.2
         self.vars['bowl_strength'] = None
         self.vars['beta_min_offset'] = 0.1
         # Time step params
         self.vars['max_dt'] = 0.01
         self.vars['min_dt'] = 0.0005
-        self.vars['dt'] = 0.1
+        self.vars['dt'] = 0.009
         # Training traces
         self.vars['prev_s'] = None
         self.vars['Harmony_trace'] = None
@@ -130,6 +137,11 @@ class Net(object):
         self.vars['TP_h_trace'] = None
         self.vars['TP_dist_trace'] = None
         self.vars['S_trace'] = None
+
+        if self.custom_settings is not None:
+            for key, value in self.custom_settings.items():
+                if key in self.vars:
+                    self.vars[key] = value
 
     def create_full_traces(self):
         self.full_traces = dict()
@@ -998,7 +1010,7 @@ class Net(object):
             to the T parameter"""
         self.noise = torch.rand(self.state.shape).double()
         self.noise *= torch.sqrt(2 *
-                                 torch.tensor(self.vars['T'])*torch.tensor(self.vars['dt']))
+                                 self.vars['T']*torch.tensor(self.vars['dt']))
 
     def check_overflow(self):
         """Check if the training converged or diverged"""

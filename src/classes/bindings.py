@@ -5,6 +5,7 @@ Classes Roles, Fillers
 from src.classes.utilFunc import fixed_dotProduct_matrix
 import torch
 
+
 class Roles(object):
     """Roles Class."""
 
@@ -19,8 +20,11 @@ class Roles(object):
         self.R = self.rolesMatrix()
 
     def rolesMatrix(self, dp=0):
+        """Build the role Matrix, dp= 0, i.e. roles are maximally different"""
+        roleSimilarity = torch.tensor(
+            [[1, 0, -0.5, - 0.5], [0, 1, 0, 0], [-0.5, 0, 1, 0.1], [-0.5, 0, 0.1, 1]])
         print("Build role Matrix")
-        return fixed_dotProduct_matrix(self.nR, self.nR, z=dp)
+        return fixed_dotProduct_matrix(self.nR, self.nR, z=None, target_matrix=roleSimilarity)
 
     def rolesDicts(self):
         """Build dictionary role : idx and the reverse"""

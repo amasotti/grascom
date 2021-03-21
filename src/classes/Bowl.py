@@ -12,8 +12,8 @@ class Bowl(object):
         self.Net = GSCNet
         self.center = self.Net.vars['bowl_center'] * \
             torch.ones(self.Net.nSym, dtype=torch.double)
-        # self.strength = self.recommend_strength() # Python version
-        self.strength = self.recommended_strength_Matlab()
+        self.strength = self.recommend_strength()  # Python version
+        #self.strength = self.recommended_strength_Matlab()
         print(
             f"recommended pyton: {self.recommend_strength()}\nRecommended Matlab: {self.strength}")
 
@@ -74,7 +74,7 @@ class Bowl(object):
 
         """
         bowl_biasesC = self.Net.vars['bowl_strength'] * self.center
-        if bowl_biasesC.shape != (self.Net.nSym, 1): # create col vector
+        if bowl_biasesC.shape != (self.Net.nSym, 1):  # create col vector
             bowl_biasesC = bowl_biasesC.reshape((self.Net.nSym, 1))
 
         bowl_biasesS = self.Net.TPinv.T.matmul(bowl_biasesC)
