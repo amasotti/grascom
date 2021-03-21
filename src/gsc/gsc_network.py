@@ -13,7 +13,7 @@ import numpy as np
 from tqdm import tqdm, trange
 import pandas as pd
 # Set seed for reproducibility
-#torch.manual_seed(123)
+# torch.manual_seed(123)
 
 
 class Net(object):
@@ -59,8 +59,6 @@ class Net(object):
         # General Setup
         self.setup_net()
 
-
-
     # -----------------------  GENERAL SETTINGS ------------------------------
 
     def _define_settings(self):
@@ -74,7 +72,7 @@ class Net(object):
         self.settings['maxInp'] = 1
 
         #### ORIGINALLY IN THE SETTINGS FILE #####
-        self.settings["epochs"] = 5  # Training epochs
+        self.settings["epochs"] = 2  # Training epochs
         self.settings["tgtStd"] = 0.00000125
         self.settings['T_init'] = 1e-6
         self.settings["TMin"] = 0
@@ -82,13 +80,13 @@ class Net(object):
         self.settings["lambdaInit"] = 1e-7
         self.settings["lambdaMin"] = 0.01
         self.settings["lambdaDecayRate"] = 0.65
-        self.settings["maxSteps"] = 10000
+        self.settings["maxSteps"] = 6000
         self.settings["emaSpeedTol"] = 0.002
         self.settings["emaFactor"] = .05
-        self.settings["diary"] = False
         self.settings["printInterval"] = 3000
         self.settings["summary_file"] = "data/summary.txt"
-        mean = torch.ones(self.grammar.bind.nF, self.grammar.bind.nR)/self.grammar.bind.nF
+        mean = torch.ones(self.grammar.bind.nF,
+                          self.grammar.bind.nR)/self.grammar.bind.nF
         self.settings["initStateMean"] = mean
         self.settings["initStateStdev"] = .0125
         self.settings['clamped'] = False
@@ -146,16 +144,20 @@ class Net(object):
         self.full_traces['time_trace'] = torch.zeros(
             (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
         self.full_traces['TP_trace'] = dict()
-        self.full_traces['TPnum_trace'] = dict()
+        self.full_traces['TPnum_trace'] = torch.empty(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
         self.full_traces['TP_h_trace'] = torch.zeros(
             (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
         self.full_traces['TP_dist_trace'] = torch.zeros(
             (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
         self.full_traces['S_trace'] = torch.zeros(
-            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps'], self.nSym))
-
-    def reset(self):
-        pass  # TODO:
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps'], self.nSym, 1))
+        self.full_traces['reaction_times'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs']))
+        self.full_traces['divergence'] = torch.zeros(
+            (self.nStimuli, self.settings['epochs']))
+        self.full_traces['winners_idx'] = torch.empty(
+            (self.nStimuli, self.settings['epochs'], 1, self.grammar.nR))
 
     # -----------------------  RETRIEVE BINDINGS -------------------------
     def find_bindings(self, bindName):
@@ -163,21 +165,24 @@ class Net(object):
         try:
             return self.bind2index[bindName]
         except:
-            raise KeyError(f"The binding {bindName} is not in the general list... check your input file!")
+            raise KeyError(
+                f"The binding {bindName} is not in the general list... check your input file!")
 
     def find_role(self, roleName):
         """Retrieve the index of a specific role"""
         try:
             return self.role2index[roleName]
         except:
-            raise KeyError(f"The role {roleName} is not in the general list... check your input file!")
+            raise KeyError(
+                f"The role {roleName} is not in the general list... check your input file!")
 
     def find_filler(self, fillerName):
         """Retrieve the index of a specific binding"""
         try:
             return self.filler2index[fillerName]
         except:
-            raise KeyError(f"The Filler {fillerName} is not in the general list... check your input file!")
+            raise KeyError(
+                f"The Filler {fillerName} is not in the general list... check your input file!")
 
     # ----------------------- SETUP ROUTINE ------------------------------------
 
@@ -186,41 +191,35 @@ class Net(object):
         # This will allow us to change from neural distributed to local symbolic repr.
         self.generateTP()
 
-        # Generate Encodings for Fillers and Roles
-
         # Initialize weights and biases
         self.W = self.compute_neural_weights()
         self.B = self.compute_neural_biases()
 
-        # States and Inputs for the RNN-like network
-        self.stateC = torch.zeros(
-            self.nSym, dtype=torch.double)
-        self.stateC_prev = torch.zeros(
-            self.nSym, dtype=torch.double)
-
-        self.state = self.toNeural()
-        self.state_prev = self.toNeural(matrix=self.stateC_prev)
-
-        self.inpC = torch.zeros(self.nSym, dtype=torch.double)
-        self.inpC_prev = torch.zeros(self.nSym, dtype=torch.double)
-
-        self.inpS = self.toNeural(self.inpC)
-        self.inpS_prev = self.toNeural(self.inpC_prev)
-
-        # Construct weights and biase matrices for the Neural space
+        # Construct weights and biase matrices for the Conceptual space
         self._set_weights()
         self._set_bias()
         # self.debug_copies()
 
+        # States and Inputs for the RNN-like network
+        self.stateC = torch.zeros(self.nSym, dtype=torch.double)
+        self.stateC_prev = torch.zeros(self.nSym, dtype=torch.double)
+        self.state = self.toNeural()
+        self.state_prev = self.toNeural(matrix=self.stateC_prev)
+
+        # Initialize vectors for the external input
+        self.inpC = torch.zeros(self.nSym, dtype=torch.double)
+        self.inpC_prev = torch.zeros(self.nSym, dtype=torch.double)
+        self.inpS = self.toNeural(self.inpC)
+        self.inpS_prev = self.toNeural(self.inpC_prev)
+
         # Bowl
+        # Calculate the weights and biases for the Bowl:
         self._bowl_params()
+        self.Bowl_bC, self.Bowl_bS = self.bowl.set_biases()
+        self.Bowl_WC, self.Bowl_WS = self.bowl.set_weights()
 
         # Calculate the recommended Lambda and Temp values:
         self.check_Q_T_lambda()
-
-        # Calculate the weights and biases for the Bowl:
-        self.Bowl_bC, self.Bowl_bS = self.bowl.set_biases()
-        self.Bowl_WC, self.Bowl_WS = self.bowl.set_weights()
 
         # Add the bowl weights to the Harmoniy weights
         self.merge_bowl()
@@ -231,7 +230,7 @@ class Net(object):
 
         # Log default parameters
         self.logger(default_settings="#"*25 + " DEFAULT SETTINGS" + "#"*25)
-        self.logger(default_settings=self.__dict__)
+        self.logger(default_settings=self.settings)
         self.logger(bowl="#"*25 + " BOWL PARAMETER" + "#"*25)
         self.logger(bowl=self.bowl.__dict__)
 
@@ -326,7 +325,8 @@ class Net(object):
                     k = 1
                 else:
                     k = 0.5
-                W += k * (harmonies[i, j] * (w_i @ w_j.T + w_j @ w_i.T)) / ((w_i.T @ w_i) @ (w_j.T @ w_j))
+                W += k * (harmonies[i, j] * (w_i @ w_j.T + w_j @
+                                             w_i.T)) / ((w_i.T @ w_i) @ (w_j.T @ w_j))
         return W
 
     def _set_weights(self):
@@ -352,10 +352,12 @@ class Net(object):
 
         """
         self.bowl = Bowl(self)
-        self.vars['bowl_strength'] = self.vars['q_init'] = self.bowl.strength + self.vars['beta_min_offset']
+        self.vars['bowl_strength'] = self.vars['q_init'] = self.bowl.strength + \
+            self.vars['beta_min_offset']
         if self.vars['bowl_strength'] <= self.vars['beta_min_offset']:
-            print(f"Bowl overflow -- Set to the minimum value :  {self.vars['beta_min_offset']}")
-            #aise ValueError("Bowl overflow... strength lower than set tolerance. Modify the tolerance or fix the bug!")
+            print(
+                f"Bowl overflow -- Set to the minimum value :  {self.vars['beta_min_offset']}")
+            # aise ValueError("Bowl overflow... strength lower than set tolerance. Modify the tolerance or fix the bug!")
             self.vars['bowl_strength'] = self.vars['beta_min_offset']
         if self.vars['bowl_strength'] > self.vars['q_max']:
             self.vars['bowl_strength'] = self.vars['q_max']
@@ -578,17 +580,6 @@ class Net(object):
                 key = stimulus + "/" + str(i)
                 self.final_TPStates[key] = 0
 
-        # Save the numbers of TP final states
-        self.final_TPnum = torch.zeros(
-            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps']))
-
-        # Reaction times
-        self.reaction_times = torch.zeros(
-            (self.nStimuli, self.settings['epochs']))
-
-        # Divergence
-        self.divergence = torch.zeros((self.nStimuli, self.settings['epochs']))
-
     # ----------------------- EXTERNAL INPUT  ----------------------------
 
     def readInput(self):
@@ -624,27 +615,6 @@ class Net(object):
             print(f"Input processed: {inp_string[:-1]}\n")
             # Store the names for later plotting
             self.inputNames.append(inp_string[:-1])
-
-    # ---------------------- UPDATE WEIGHT AND BIASES --------------------
-
-    def set_singleWeight(self, bind1, bind2, weight, symmetric=True):
-        #FIXME: This is  probably not used
-        idx1 = self.find_bindings(bind1)
-        idx2 = self.find_bindings(bind2)
-        if symmetric:
-            self.Wc[idx1, idx2] = self.Wc[idx2, idx1] = weight
-        else:
-            self.Wc[idx1, idx2] = weight
-
-        # Update general Weight Matrix in the Neural Space
-        self._set_weights()
-
-    def set_bias(self, bind, bias):
-        idx = self.find_bindings(bind)
-        self.Bc[idx] = bias
-
-        # Update the neural Bias matrix
-        self._set_bias()
 
     # ----------------------- CHANGE OF BASIS  ---------------------------
 
@@ -682,38 +652,43 @@ class Net(object):
 
 
         """
-        #save copy of the initialized matrices
-        scipy.io.savemat("data/initialized_mats.mat", mdict= {"B" : self.B.numpy(), "Bc" : self.Bc.numpy(),
-                                             "TP" : self.TP.numpy(), "TPinv" : self.TPinv.numpy(),
-                                             "W" : self.W.numpy(), "Wc" : self.Wc.numpy(),
-                                             "Hcc" : self.Hcc.numpy(), "Hc" : self.Hc.numpy(),
-                                             "stimuli" : self.stimuli.numpy(),
-                                             "bowl_center" : self.vars['bowl_center'],
-                                             "bowl_strength": self.vars['bowl_strength'],
-                                             "LVinh" : self.LV_inhM.numpy(), "LVc" : self.LV_c.numpy(),
-                                             "LVs" : self.LV_s.numpy()
-                                            })
+        # save copy of the initialized matrices
+        scipy.io.savemat("data/initialized_mats.mat", mdict={"B": self.B.numpy(), "Bc": self.Bc.numpy(),
+                                                             "TP": self.TP.numpy(), "TPinv": self.TPinv.numpy(),
+                                                             "W": self.W.numpy(), "Wc": self.Wc.numpy(),
+                                                             "Hcc": self.Hcc.numpy(), "Hc": self.Hc.numpy(),
+                                                             "stimuli": self.stimuli.numpy(),
+                                                             "bowl_center": self.vars['bowl_center'],
+                                                             "bowl_strength": self.vars['bowl_strength'],
+                                                             "LVinh": self.LV_inhM.numpy(), "LVc": self.LV_c.numpy(),
+                                                             "LVs": self.LV_s.numpy()
+                                                             })
         for epoch in trange(self.settings['epochs'], desc="Epoch routine:"):
             for stimulus in trange(self.nStimuli, desc=f"Stimulus routine:"):
                 stim_vec = self.stimuli[stimulus, :, :]
-                diverge, harmony = self.process_stimulus(stim_vec, epoch, stimulus)
+                diverge, harmony = self.process_stimulus(
+                    stim_vec, epoch, stimulus)
                 # Update after stimulus processing
                 self.update_after_stim(
                     nStimulus=stimulus, epoch=epoch, diverge=diverge)
                 print(
                     f"\nLast best Harmony: {float(harmony)}\n")
+                self.logger(title="#"*50 + " Training routine " + "#"*50)
+                self.logger(epoch=epoch, stimulus=stimulus)
+                self.logger(default_settings=self.vars)
             # Update values after each epoch
         self.final_update()
+        self.save_final_traces()
 
     # -----------------------  PROCESSING AND UPDATE ---------------------------------
     def process_stimulus(self, stimulus, epoch, stimNum):
         """Process a single stimulus."""
-        diverge_prob = False
+        diverge = False
         self.init_for_run(stimulus)
         harmony, state, stateC = self.calc_max_Harmony()
 
         # Update bowl parameters (They depend on the stimulus)
-        self._bowl_params()
+        # self._bowl_params()
 
         # Update after each step
         self.updateAfterStep(harmony)
@@ -739,7 +714,7 @@ class Net(object):
             self.stateC = self.toConceptual(self.state)
 
             if self.check_overflow():
-                diverge_prob = True
+                diverge = True
                 print(f"Net overflowed at step: {step}")
                 break
 
@@ -757,7 +732,7 @@ class Net(object):
                     f"The net has converged at step {self.vars['step']}, nearest State: {self.vars['TP_trace']}")
                 break
 
-        if diverge_prob:
+        if diverge:
             # Don't use this step
             self.vars['step'] -= 1
         if self.vars['step'] == self.settings['maxSteps']:
@@ -766,7 +741,7 @@ class Net(object):
                 f"The net has reached the maximum number of steps {self.settings['maxSteps']}")
             self.consoleLog_step()
 
-        return diverge_prob, harmony
+        return diverge, harmony
 
     def updateAfterStep(self, harmony):
         """Record state after each step.
@@ -777,7 +752,7 @@ class Net(object):
         TP_state, winners, state_name, binding, Cdist, Sdist, state_num, TP_h = self.calc_nearest_state()
         self.vars['winners'] = winners
         self.vars['symBindings_winners'] = binding
-        self.vars['S_trace'][self.vars['step'], :] = self.state.T
+        self.vars['S_trace'][self.vars['step'], :, :] = self.state
         self.vars['Harmony_trace'][self.vars['step']] = harmony
         self.vars['speed_trace'][self.vars['step']] = self.calc_speed()
         self.vars['ema_trace'][self.vars['step']] = self.calc_ema()
@@ -787,10 +762,6 @@ class Net(object):
         self.vars['TPnum_trace'][self.vars['step']] = state_num
         self.vars['TP_h_trace'][self.vars['step']] = TP_h
         self.vars['TP_dist_trace'][self.vars['step']] = Cdist
-
-        # Log the updated values
-        self.logger(step=self.vars['step'])
-        self.logger(traces=self.vars)
 
     def update_after_stim(self, nStimulus, epoch, diverge):
         """Update values and traces after each stimulus"""
@@ -802,25 +773,21 @@ class Net(object):
         # Update finalStates traces
         inp = self.inputNames[nStimulus] + "/" + str(epoch)
         self.final_TPStates[inp] = self.vars['TP_trace'][-1]
-        self.final_TPnum[nStimulus, epoch, :] = self.vars['TPnum_trace']
-        self.reaction_times[nStimulus, epoch] = diverge
-        self.update_full_traces(nStimulus=nStimulus, epoch=epoch)
+        self.update_full_traces(nStimulus=nStimulus,
+                                epoch=epoch, diverge=diverge)
 
         self.logger(fp="data/stimuli_summary.txt",
                     stimulus_epoch=str(nStimulus)+"_"+str(epoch))
         self.logger(fp="data/stimuli_summary.txt",
-                    final_states=self.final_TPStates)
-        self.logger(fp="data/stimuli_summary.txt",
-                    final_TP_num=self.final_TPnum)
-        self.logger(fp="data/stimuli_summary.txt",
-                    full_traces=self.full_traces)
+                    winners=self.final_TPStates)
 
-    def update_full_traces(self, nStimulus, epoch):
+    def update_full_traces(self, nStimulus, epoch, diverge):
         """Update full traces tensors"""
         self.full_traces['Harmony_trace'][nStimulus,
                                           epoch, :] = self.vars['Harmony_trace']
         #self.full_traces['speed_trace'][nStimulus, epoch, : ] = self.vars['speed_trace']
         #self.full_traces['ema_trace'][nStimulus, epoch, : ] = self.vars['ema_trace']
+
         self.full_traces['lambda_trace'][nStimulus,
                                          epoch, :] = self.vars['lambda_trace']
         self.full_traces['time_trace'][nStimulus,
@@ -830,11 +797,18 @@ class Net(object):
         self.full_traces['TP_dist_trace'][nStimulus,
                                           epoch, :] = self.vars['TP_dist_trace']
         self.full_traces['S_trace'][nStimulus,
-                                    epoch, :, :] = self.vars['S_trace']
+                                    epoch, :, :, :] = self.vars['S_trace']
+        self.full_traces['reaction_times'][nStimulus,
+                                           epoch] = self.vars['step']
+        self.full_traces['divergence'][nStimulus, epoch] = diverge
+        self.full_traces['winners_idx'][nStimulus,
+                                        epoch, :, :] = self.vars['winners']
 
         key = self.inputNames[nStimulus] + "/rep_" + str(epoch)
         self.full_traces['TP_trace'][key] = self.vars['TP_trace']
-        self.full_traces['TPnum_trace'][key] = self.vars['Harmony_trace'] #TODO: change this!
+        # TODO: change this!
+        self.full_traces['TPnum_trace'][nStimulus,
+                                        epoch, :] = self.vars['TPnum_trace']
 
     def update_after_epoch(self, winnerlist):
         # TODO: Do some update after each epoch
@@ -842,7 +816,6 @@ class Net(object):
 
     def final_update(self):
         "Final update after all epochs"
-        # TODO: Implement accuracy metrics
         pass
 
     # ----------------------- AUXILIARY TO PROCESSING ----------------------
@@ -859,7 +832,7 @@ class Net(object):
         """
         # Initialize training traces
         max_steps = self.settings['maxSteps']
-        self.vars['S_trace'] = torch.zeros((max_steps, self.nSym))
+        self.vars['S_trace'] = torch.zeros((max_steps, self.nSym, 1))
         self.vars['prev_s'] = torch.tensor(
             [float('inf')]) * torch.ones((self.nSym, 1))
         self.vars['Harmony_trace'] = torch.zeros(max_steps)
@@ -994,7 +967,10 @@ class Net(object):
         """
         coefficients = torch.tensor(self.grammar.nF).pow(
             torch.arange(self.grammar.nR - 1, -1, -1))
-        stateNum = (filleridx - 1).matmul(coefficients.T) + 1
+        # TODO: Matlab moves the vector -1 from origin but here, that would lead
+        # to negative numbers if one fillers == 0. Why do they traslate the vector?
+        #stateNum = (filleridx -1).matmul(coefficients.T) + 1
+        stateNum = (filleridx).matmul(coefficients.T)
         return stateNum
 
     def find_symBinding(self, filleridx):
@@ -1100,8 +1076,29 @@ class Net(object):
                 for k, v in kwargs.items():
                     print(f"{k} : {v}")
             C = self.toConceptual(self.state)
-            print(f"\nConceptual Matrix: {C}")
+            C_as_df = self.matrix_to_df(C)
+            print(f"\nConceptual Matrix:")
+            print(C_as_df)
             print(f"Nearest TP: {self.vars['TP_trace'][-1]}")
+
+    def matrix_to_df(self, matrix):
+        """Transform C-matrix to pandas df for printing"""
+        # Convert to np array
+        matrix = matrix.numpy()
+        df = pd.DataFrame(matrix, columns=list(
+            self.role2index.keys()), index=list(self.filler2index))
+        return df
+
+    def save_final_traces(self):
+        """Save the matrices produced as traces to disk
+            both as .mat (MATLAB) and .pt (PyTorch) format
+        """
+        torch.save(self.full_traces, "data/full_traces.pt")
+        torch.save({"W": self.W, "Wc": self.Wc,
+                    "B": self.B, "Bc": self.Bc, "TP": self.TP}, "data/params.pt")
+        scipy.io.savemat("data/full_traces.mat", mdict=self.full_traces)
+        scipy.io.savemat("data/params.mat", mdict={"W": self.W.numpy(), "Wc": self.Wc.numpy(),
+                                                   "B": self.B.numpy(), "Bc": self.Bc.numpy(), "TP": self.TP.numpy()})
 
     def __repr__(self):
         return "GSC Network"

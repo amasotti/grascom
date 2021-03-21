@@ -1,13 +1,14 @@
 # # # Playground and testing
+from src.gsc.plotting import Plot
 from src.classes.Grammar import Grammar
 from src.gsc.gsc_network import Net
 import torch
 # Set seed for reproducibility
-torch.manual_seed(123)
+torch.manual_seed(111)
 
-#---------------------------------------
+# ---------------------------------------
 #       GRAMMAR AND CONSTRAINTS
-#---------------------------------------
+# ---------------------------------------
 # Fillers and Roles
 fillers = ["bh", "b", "u", "d", "dh"]
 roles = ["s1", "s2", "s3", "s4"]
@@ -21,7 +22,7 @@ similarities = torch.tensor([[1, 0.75, 0, 0, 0, 0],
 """
 # Build Grammar
 G = Grammar(fillers, roles, emtpyFiller="#")
-#G = Grammar(fillers, roles, emtpyFiller="#", fillerSimilarities=similarities)
+# G = Grammar(fillers, roles, emtpyFiller="#", fillerSimilarities=similarities)
 
 # Single Harmony constraints
 # This is a matrix (nF, nR)
@@ -44,11 +45,17 @@ G.update_Hc(cons)"""
 G.update_Hcc(cons)"""
 
 
-#---------------------------------------
+# ---------------------------------------
 #           GSC NET
-#---------------------------------------
+# ---------------------------------------
 # Initialize
 N = Net(G)
 
 # Run
 p = N()
+
+# ---------------------------------------
+#           Plots
+# ---------------------------------------
+plot = Plot(net=N, fp_traces="data/full_traces.pt")
+n, v, c = plot.plotTP_probs(0, 0)
