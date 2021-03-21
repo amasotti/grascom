@@ -2,8 +2,9 @@
 Classes Roles, Fillers
 
 """
-from src.classes.utilFunc import fixed_dotProduct_matrix
+from src.classes.utilFunc import fixed_dotProduct_matrix, fortran_reshape
 import torch
+import itertools
 
 
 class Roles(object):
@@ -18,13 +19,41 @@ class Roles(object):
 
         # Roles Matrix
         self.R = self.rolesMatrix()
+        #self.R = self.positionalRoles(dotp=0)
 
     def rolesMatrix(self, dp=0):
         """Build the role Matrix, dp= 0, i.e. roles are maximally different"""
-        roleSimilarity = torch.tensor(
-            [[1, 0, -0.5, - 0.5], [0, 1, 0, 0], [-0.5, 0, 1, 0.1], [-0.5, 0, 0.1, 1]])
+        #roleSimilarity = torch.tensor([[1, 0, -0.5, - 0.5], [0, 1, 0, 0], [-0.5, 0, 1, 0.1], [-0.5, 0, 0.1, 1]])
         print("Build role Matrix")
-        return fixed_dotProduct_matrix(self.nR, self.nR, z=None, target_matrix=roleSimilarity)
+        # return fixed_dotProduct_matrix(self.nR, self.nR, z=None, target_matrix=roleSimilarity)
+        return fixed_dotProduct_matrix(self.nR, self.nR, z=dp)
+
+    def positionalRoles(self, dotp=0):
+        """Build the matrix for positional roles
+
+        Similar to the rolesMatrix() method, this matrix
+        takes into account similarity between roles and similarity
+        between positions.  
+
+        In the concrete case implemented in this project, we have 4 roles
+        that correspond to 4 positions.
+
+        """
+        nr = int(self.nR / 2)
+        posM = fixed_dotProduct_matrix(nr, nr, z=.1, target_matrix=None)
+        rolM = fixed_dotProduct_matrix(nr, nr, z=dotp, target_matrix=None)
+
+        r = 0
+        R = torch.zeros((self.nR, self.nR), dtype=torch.double)
+        for i in range(nr):
+            for j in range(nr):
+                p = posM[:, i].unsqueeze(1)
+                q = rolM[:, j].unsqueeze(1)
+                row = p.mm(q.T)
+                row = fortran_reshape(row, (row.numel(), 1))
+                R[:, r] = row.squeeze()
+                r += 1
+        return R
 
     def rolesDicts(self):
         """Build dictionary role : idx and the reverse"""
@@ -109,6 +138,7 @@ class Bindings(object):
         self.F = fillers.F
         self.R = roles.R
         self.bind2index, self.index2bind = self.bindDicts()
+        self.states, self.state_rev = self.combine_bindings()
 
         # Binding Matrix #TODO: Probably not needed
         self.BindM = torch.zeros((self.nF, self.nR))
@@ -123,6 +153,37 @@ class Bindings(object):
 
         index2bind = {i: b for b, i in bind2index.items()}
         return bind2index, index2bind
+
+    def combine_bindings(self):
+        """Build a dictionary of all possible combinations
+        of roles and fillers
+
+        This dictionary will be later used to assign a name 
+        to the produced state.
+
+        """
+        # Combinations
+        fillers = list(self.fillers.keys())
+        combi = itertools.combinations_with_replacement(
+            fillers, len(self.roles))
+        combi = list(combi)
+
+        # Permutations
+        perm = list()
+        for state in combi:
+            p = itertools.permutations(state)
+            for per in p:
+                perm.append(per)
+        # Clean duplicates
+        perm = list(set(perm))
+
+        # simplify format
+        states = dict()
+        for p in perm:
+            p_string = "-".join(p)
+            states[p_string] = len(states)
+        states_rev = {i: p for p, i in states.items()}
+        return states, states_rev
 
     def __len__(self):
         return len(self.bind2index)

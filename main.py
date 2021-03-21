@@ -4,38 +4,37 @@ from src.classes.Grammar import Grammar
 from src.gsc.gsc_network import Net
 import torch
 # Set seed for reproducibility
-# torch.manual_seed(111)
+torch.manual_seed(122)
 
 # ---------------------------------------
 #       GRAMMAR AND CONSTRAINTS
 # ---------------------------------------
 # Fillers and Roles
 fillers = ["bh", "b", "u", "d", "dh"]
-roles = ["s1", "s2", "s3", "s4"]
+roles = ["s1", "s2", "s3"]
 
-similarities = torch.tensor([[1, 0.75, 0, 0, 0, 0],
+"""similarities = torch.tensor([[1, 0.75, 0, 0, 0, 0],
                              [0.75, 1, 0, 0, 0, 0],
                              [0, 0, 1, 0, 0, 0],
                              [0, 0, 0, 1, 0.75, 0],
                              [0, 0, 0, 0.75, 1, 0],
-                             [0, 0, 0, 0, 0, 1]])
+                             [0, 0, 0, 0, 0, 1]])"""
 
 # Build Grammar
-# G = Grammar(fillers, roles, emtpyFiller="#")
-G = Grammar(fillers, roles, emtpyFiller="_", fillerSimilarities=similarities)
+G = Grammar(fillers, roles, emtpyFiller="_")
+#G = Grammar(fillers, roles, emtpyFiller="_", fillerSimilarities=similarities)
 
 # Single Harmony constraints
 # This is a matrix (nF, nR)
-cons = [("_/s4", 3), ("u/s2", 15), ("b/s1", 3), ("d/s1", 30), ("d/s1", 3.5)]
+cons = [("u/s2", .5), ("b/s1", .75)]
 G.update_Hc(cons)
-
-
 """
+
 # Pairwise Harmony
 # Matrix dim: (nF, nR, nF, nR)
-cons = [("bh/s1", "d/s3", 2),
-        ("dh/s4", "b/s1", 5),
-        ("u/s2", "dh/s3", 5)]
+cons = [("b/s1" "u/s2", 50),
+        ("u/s2", "d/s3", 50),
+        ("bh/s1", "dh/s3", -50)]
 G.update_Hcc(cons)
 """
 
@@ -43,14 +42,16 @@ G.update_Hcc(cons)
 #           GSC NET
 # ---------------------------------------
 
-custom_settings = {"epochs": 3,
-                   "tgtStd": 1e-4,
-                   "emaFactor": 0.05,
+custom_settings = {"epochs": 2,
+                   "tgtStd": 1e-3,
+                   "emaFactor": 9e-2,
+                   "emaSpeedTol": 9e-5,
                    "dt": 5e-3,
-                   "T_decay_rate": 1.25e-2,
-                   "maxSteps": 7000}
+                   "T_decay_rate": 1.25e-3,
+                   "maxSteps": 3000,
+                   "printInterval": 1000}
 # Initialize
-N = Net(G, custom_settings=custom_settings, extData_path="data/inp2.csv")
+N = Net(G, custom_settings=custom_settings)
 
 
 # Run
@@ -60,5 +61,5 @@ p = N()
 #           Plots
 # ---------------------------------------
 plot = Plot(net=N, fp_traces="data/full_traces.pt")
-plot.plotTP_probs(stim=0, epoch=2)
+plot.plotTP_probs(stim=0, epoch=0)
 print("Done")

@@ -91,8 +91,9 @@ class Plot(object):
         return stateNames
 
     def find_names(self, stateNum):
-        winners = self.id_to_filler(stateNum=torch.tensor(stateNum))
-        stateName = self.net.find_TPname(winners)
+        #winners = self.id_to_filler(stateNum=torch.tensor(stateNum))
+        #stateName = self.net.find_TPname(winners)
+        stateName = self.net.stateDict_rev[stateNum]
         return stateName
 
     def id_to_filler(self, stateNum, nR=4, nF=6):
@@ -102,10 +103,13 @@ class Plot(object):
         starting from the origin.
         """
         # translate the vector
+        #stateNum -= 1
         winners = torch.zeros(self.nR).long()
         coefficients = torch.tensor(self.nF).pow(
             torch.arange(self.nR - 1, -1, -1))
         for i in range(self.nR):
             winners[i] = torch.floor(stateNum/coefficients[i])
-            stateNum = stateNum % coefficients[i]
+
+            #stateNum = stateNum % coefficients[i]
+            stateNum = torch.remainder(stateNum, coefficients[i])
         return winners

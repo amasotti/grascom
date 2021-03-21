@@ -16,8 +16,8 @@ def fortran_reshape(array, shape):
     I've opened an issue on pytorch/pytorch, waiting for the devs
     to support the fortran order in Pytorch
     """
-    #array = array.numpy().flatten()
-    array = array.numpy()
+    array = array.numpy().flatten()
+    #array = array.numpy()
     array = array.reshape(shape, order="F")
     return torch.tensor(array)
 
@@ -110,4 +110,4 @@ def save_matlab(array, name):
     """Create a backup of tensors in MATLAB format"""
     path = "data/" + name
     array = array.numpy()
-    sm(path, mdict={name : array})
+    sm(path, mdict={name: array})

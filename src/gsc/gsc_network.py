@@ -39,6 +39,8 @@ class Net(object):
         # Bindings
         self.bind2index = self.grammar.bind.bind2index
         self.index2bind = self.grammar.bind.index2bind
+        self.stateDict = self.grammar.bind.states
+        self.stateDict_rev = self.grammar.bind.state_rev
 
         #  Set up the settings dictionary
         self.custom_settings = custom_settings
@@ -78,18 +80,18 @@ class Net(object):
         self.settings['T_init'] = 1e-6
         self.settings["TMin"] = 0
         self.settings["TdecayRate"] = 0.05
-        self.settings["lambdaInit"] = 1e-7
+        self.settings["lambdaInit"] = 1
         self.settings["lambdaMin"] = 0.01
-        self.settings["lambdaDecayRate"] = 0.65
-        self.settings["maxSteps"] = 20000
-        self.settings["emaSpeedTol"] = 0.002
-        self.settings["emaFactor"] = .05
+        self.settings["lambdaDecayRate"] = 0.60
+        self.settings["maxSteps"] = 300000
+        self.settings["emaSpeedTol"] = 0.009
+        self.settings["emaFactor"] = .005
         self.settings["printInterval"] = 3000
         self.settings["summary_file"] = "data/summary.txt"
         mean = torch.ones(self.grammar.bind.nF,
                           self.grammar.bind.nR)/self.grammar.bind.nF
         self.settings["initStateMean"] = mean
-        self.settings["initStateStdev"] = .0125
+        self.settings["initStateStdev"] = .015
         self.settings['clamped'] = False
 
         if self.custom_settings is not None:
@@ -118,9 +120,9 @@ class Net(object):
         self.vars['q_max'] = 150.
         #self.vars['q_rate'] = 10.
         # Check if we can improve learning, adjusting this value
-        self.vars['bowl_center'] = 0.2
+        self.vars['bowl_center'] = 0.4
         self.vars['bowl_strength'] = None
-        self.vars['beta_min_offset'] = 0.1
+        self.vars['beta_min_offset'] = 2
         # Time step params
         self.vars['max_dt'] = 0.01
         self.vars['min_dt'] = 0.0005
@@ -286,7 +288,8 @@ class Net(object):
             and the other way round
         """
         # Approximate to Kronecker Product
-        self.TP = torch.kron(self.R, self.F).double()
+        TP = np.kron(self.R.numpy(), self.F.numpy())
+        self.TP = torch.tensor(TP, dtype=torch.double)
         # create the inverse if TP is a square matrix:
         # Use the Moore-Penrose pseudoinverse if TP is not square
         self.TPinv = torch.inverse(self.TP)
@@ -628,7 +631,7 @@ class Net(object):
             # Store the names for later plotting
             self.inputNames.append(inp_string[:-1])
 
-    # ----------------------- CHANGE OF BASIS  ---------------------------
+            # ----------------------- CHANGE OF BASIS  ---------------------------
 
     def toNeural(self, matrix=None):
         """Transform Conceptual vectors into Neural vectors
@@ -865,6 +868,18 @@ class Net(object):
         self.inpS = self.TP.matmul(stimulus)
         self.inpC = self.TP.T.matmul(self.inpS)
 
+        # ----------- ALTERNATIVE ---------------------
+        # Let's try the matrix version : TPR = Fillers * Bind * Roles
+        #self.inpS = self.F.matmul(stimulus).matmul(self.R)
+        #self.inpC = self.inpS @ torch.pinverse(self.R)
+        # Reshape to make it suitable for MM.
+        #self.inpC = self.inpC.reshape((self.inpC.numel(), 1))
+        #self.inpS = self.inpS.reshape((self.inpS.numel(), 1))
+        # ----------- END ALTERNATIVE ---------------------
+
+        self.inpS = self.inpS.double()
+        self.inpC = self.inpC.double()
+
         # Initialize state
         self.initial_state = self.settings['initStateMean'] * torch.rand(
             (self.grammar.nF, self.grammar.nR)) * self.settings["initStateStdev"]
@@ -940,7 +955,7 @@ class Net(object):
 
         state_name = self.find_TPname(filleridx=winners)
         binding = self.find_symBinding(filleridx=winners)
-        state_num = self.find_TPnum(filleridx=winners)
+        state_num = self.find_TPnum(stateName=state_name)
         TP_state = self.TP.matmul(fortran_reshape(CTP, (torch.numel(CTP), 1)))
         Cdist = torch.norm(CTP - self.stateC, p='fro')  # Frobenius Norm
         Sdist = self.L2norm(TP_state - self.state)
@@ -964,25 +979,27 @@ class Net(object):
         return M, winners_idx
 
     def find_TPname(self, filleridx):
-        "Concatenate the winning fillers to give the name of the nearest TP state"
-        TP_name = ""
-        for winner in filleridx:
-            filler = self.index2filler[int(winner)]
-            TP_name += filler
-        return TP_name
-
-    def find_TPnum(self, filleridx):
-        """Retrieve the state number given ordered winner fillers
-
-        This is achieved treating the winning fillers a number in base nFillers 
-        starting from the origin.
         """
-        coefficients = torch.tensor(self.grammar.nF).pow(
-            torch.arange(self.grammar.nR - 1, -1, -1))
-        # TODO: Matlab moves the vector -1 from origin but here, that would lead
-        # to negative numbers if one fillers == 0. Why do they traslate the vector?
-        #stateNum = (filleridx -1).matmul(coefficients.T) + 1
-        stateNum = (filleridx).matmul(coefficients.T)
+        Find the state Number and name for a given list of
+        winning fillers 
+        """
+        stateName = ""
+        for filler in filleridx.long():
+            fillerName = self.index2filler[int(filler)]
+            if stateName == "":
+                stateName += fillerName
+            else:
+                stateName += "-" + fillerName
+        return stateName
+
+    def find_TPnum(self, stateName):
+        """Find the number corresponding to
+            the generated stateName
+        """
+        try:
+            stateNum = self.stateDict[stateName]
+        except:
+            raise KeyError("find_TPnum: StateName not found!!")
         return stateNum
 
     def find_symBinding(self, filleridx):
