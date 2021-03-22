@@ -170,6 +170,8 @@ class Net(object):
             (self.nStimuli, self.settings['epochs']))
         self.full_traces['winners_idx'] = torch.empty(
             (self.nStimuli, self.settings['epochs'], 1, self.grammar.nR))
+        self.full_traces['C_trace'] = torch.empty(
+            (self.nStimuli, self.settings['epochs'], self.settings['maxSteps'], self.grammar.bind.nF, self.grammar.nR,))
 
     # -----------------------  RETRIEVE BINDINGS -------------------------
     def find_bindings(self, bindName):
@@ -354,7 +356,8 @@ class Net(object):
             zeta : the neural version of the center of the bowl
 
         """
-        self.vars['bowl_strength'] = self.bowl.strength + self.vars['beta_min_offset']
+        self.vars['bowl_strength'] = self.bowl.strength + \
+            self.vars['beta_min_offset']
         self.vars['q_init'] = self.vars['bowl_strength']
         if self.vars['bowl_strength'] <= self.vars['beta_min_offset']:
             print(
@@ -551,7 +554,8 @@ class Net(object):
 
         """
         max_eigvalue = torch.max(torch.linalg.eigvalsh(self.Wc))
-        T = (self.settings["tgtStd"] ** 2) * (self.vars['bowl_strength'] - max_eigvalue)
+        T = (self.settings["tgtStd"] ** 2) * \
+            (self.vars['bowl_strength'] - max_eigvalue)
         return T
     # ---------------------- STATES AND INPUTS --------------------
 
@@ -669,7 +673,9 @@ class Net(object):
                                                              "LVs": self.LV_s.numpy()
                                                              })
         for epoch in trange(self.settings['epochs'], desc="Epoch routine:"):
+            self.vars['epoch'] = epoch
             for stimulus in trange(self.nStimuli, desc=f"Stimulus routine:"):
+                self.vars['stim'] = stimulus
                 stim_vec = self.stimuli[stimulus, :, :]
                 diverge, harmony = self.process_stimulus(
                     stim_vec, epoch, stimulus)
@@ -716,7 +722,8 @@ class Net(object):
             self.stateC_prev = self.stateC.clone()
 
             # Now update the actual state
-            state_increment = (float(self.vars['lambda']) * self.Hg) + (float(self.vars['lambda']) * self.LV_s)
+            state_increment = (
+                float(self.vars['lambda']) * self.Hg) + (float(self.vars['lambda']) * self.LV_s)
             self.state += float(self.vars['dt']) * state_increment + self.noise
             self.stateC = self.toConceptual(self.state)
 
@@ -756,20 +763,26 @@ class Net(object):
         This updates the traces initialized in init_for_run()
 
         """
+        step = self.vars['step']
+        epoch = self.vars['epoch']
+        stim = self.vars['stim']
+
         TP_state, winners, state_name, binding, Cdist, Sdist, state_num, TP_h = self.calc_nearest_state()
         self.vars['winners'] = winners
         self.vars['symBindings_winners'] = binding
-        self.vars['S_trace'][self.vars['step'], :, :] = self.state
+        self.vars['S_trace'][step, :, :] = self.state
+        self.full_traces['C_trace'][stim, epoch,
+                                    self.vars['step'], :, :] = self.stateC
         self.vars['prev_s'] = self.state_prev
-        self.vars['Harmony_trace'][self.vars['step']] = harmony
-        self.vars['speed_trace'][self.vars['step']] = self.calc_speed()
-        self.vars['ema_trace'][self.vars['step']] = self.calc_ema()
-        self.vars['lambda_trace'][self.vars['step']] = self.vars['lambda']
-        self.vars['temp_trace'][self.vars['step']] = self.vars['T']
+        self.vars['Harmony_trace'][step] = harmony
+        self.vars['speed_trace'][step] = self.calc_speed()
+        self.vars['ema_trace'][step] = self.calc_ema()
+        self.vars['lambda_trace'][step] = self.vars['lambda']
+        self.vars['temp_trace'][step] = self.vars['T']
         self.vars['TP_trace'].append(state_name)
-        self.vars['TPnum_trace'][self.vars['step']] = state_num
-        self.vars['TP_h_trace'][self.vars['step']] = TP_h
-        self.vars['TP_dist_trace'][self.vars['step']] = Cdist
+        self.vars['TPnum_trace'][step] = state_num
+        self.vars['TP_h_trace'][step] = TP_h
+        self.vars['TP_dist_trace'][step] = Cdist
         self.vars['S_dist'] = Sdist
 
     def update_after_stim(self, nStimulus, epoch, diverge):
@@ -944,7 +957,7 @@ class Net(object):
         return ema
 
     def calc_nearest_state(self):
-        """Calc the nearest TP state and the most probable winner"""#TODO: Check if we need here state, instead of self.state
+        """Calc the nearest TP state and the most probable winner"""  # TODO: Check if we need here state, instead of self.state
         self.stateC = self.toConceptual(self.state)
         CTP, winners = self.find_winner()
 
@@ -1032,8 +1045,10 @@ class Net(object):
         """
         self.stateC = self.toConceptual(self.state)
 
-        check_inf = torch.any(torch.isinf(self.stateC)) or torch.any(torch.isinf(self.state))
-        check_nan = torch.any(torch.isnan(self.stateC)) or torch.any(torch.isnan(self.state))
+        check_inf = torch.any(torch.isinf(self.stateC)) or torch.any(
+            torch.isinf(self.state))
+        check_nan = torch.any(torch.isnan(self.stateC)) or torch.any(
+            torch.isnan(self.state))
 
         if check_inf or check_nan:
             return True
@@ -1062,14 +1077,17 @@ class Net(object):
             self.vars['lambdaDecayRate'] = self.settings['lambdaDecayRate']
             self.vars['TDecayRate'] = self.settings['TDecayRate']
 
-        incremental_lambda = 1-(1-self.vars['lambdaDecayRate'])**self.vars['dt']
+        incremental_lambda = 1 - \
+            (1-self.vars['lambdaDecayRate'])**self.vars['dt']
         incremental_temp = 1-(1-self.vars['TDecayRate'])**self.vars['dt']
 
         # Update lambda
-        self.vars['lambda'] -= incremental_lambda*(self.vars['lambda']-self.settings["lambdaMin"])
+        self.vars['lambda'] -= incremental_lambda*(
+            self.vars['lambda']-self.settings["lambdaMin"])
 
         # Update T
-        self.vars['T'] -= incremental_temp * (self.vars['T']-self.settings["TMin"])
+        self.vars['T'] -= incremental_temp * \
+            (self.vars['T']-self.settings["TMin"])
 
     # -----------------------  SAVE -----------------------------------------
 
@@ -1105,7 +1123,8 @@ class Net(object):
             print(f"\nConceptual Matrix:")
             print(C_as_df)
             print(f"Nearest TP: {self.vars['TP_trace'][-1]}")
-            print(f"Distance between prediction and nearest TP: {self.vars['S_dist']}")
+            print(
+                f"Distance between prediction and nearest TP: {self.vars['S_dist']}")
 
     def matrix_to_df(self, matrix):
         """Transform C-matrix to pandas df for printing"""

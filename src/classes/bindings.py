@@ -89,7 +89,8 @@ class Fillers(object):
 
         self.fillersNames = fillers
         # Add the padding element
-        self.fillersNames.append(emptyFiller)
+        # Used to model preference for simple codas or onsets. Not needed right now
+        #self.fillersNames.append(emptyFiller)
 
         # Build dictionaries
         self.filler2index, self.index2filler = self.fillersDicts()
@@ -113,9 +114,6 @@ class Fillers(object):
         for filler in self.fillersNames:
             if filler not in filler2index:
                 filler2index[filler] = len(filler2index)
-
-        # Add padding element
-        #filler2index[self.emptyFiller] = len(filler2index)
 
         index2filler = {i: f for f, i in filler2index.items()}
         return filler2index, index2filler
