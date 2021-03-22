@@ -12,10 +12,11 @@ class Bowl(object):
         self.Net = GSCNet
         self.center = self.Net.vars['bowl_center'] * \
             torch.ones(self.Net.nSym, dtype=torch.double)
-        self.strength = self.recommend_strength()  # Python version
-        #self.strength = self.recommended_strength_Matlab()
-        print(
-            f"recommended pyton: {self.recommend_strength()}\nRecommended Matlab: {self.strength}")
+        self.strength = self.recommended_strength_Matlab()
+        # Alternative: this here depends on the external input. If you want to reuse this, you should
+        # change the order in which variables are initialized.
+        # self.strength = self.recommend_strength()  # Python version
+
 
     def recommend_strength(self):
         """Calculate the recommended strength for the Bowl.

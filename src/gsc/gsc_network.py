@@ -80,7 +80,7 @@ class Net(object):
         self.settings['T_init'] = 1e-6
         self.settings["TMin"] = 0
         self.settings["TdecayRate"] = 0.05
-        self.settings["lambdaInit"] = 1
+        self.settings["lambdaInit"] = 0.011387
         self.settings["lambdaMin"] = 0.01
         self.settings["lambdaDecayRate"] = 0.60
         self.settings["maxSteps"] = 300000
@@ -111,12 +111,12 @@ class Net(object):
         """
         self.vars = dict()
         # Temperature params
-        self.vars['T_init'] = 1e-4
+        self.vars['T_init'] = -1
         self.vars['T_min'] = 0.0
-        self.vars['T_decay_rate'] = 1e-2
+        self.vars['T_decay_rate'] = 0.05
         self.vars['lambda_min'] = 0.0001
         # Bowl params
-        self.vars['q_init'] = 16  # initial strength for the bowl
+        self.vars['q_init'] = 16.58  # initial strength for the bowl
         self.vars['q_max'] = 150.
         #self.vars['q_rate'] = 10.
         # Check if we can improve learning, adjusting this value
@@ -214,31 +214,21 @@ class Net(object):
         self._set_bias()
         # self.debug_copies()
 
-        # States and Inputs for the RNN-like network
-        self.stateC = torch.zeros(self.nSym, dtype=torch.double)
-        self.stateC_prev = torch.zeros(self.nSym, dtype=torch.double)
-        self.state = self.toNeural()
-        self.state_prev = self.toNeural(matrix=self.stateC_prev)
-
-        # Initialize vectors for the external input
-        self.inpC = torch.zeros(self.nSym, dtype=torch.double)
-        self.inpC_prev = torch.zeros(self.nSym, dtype=torch.double)
-        self.inpS = self.toNeural(self.inpC)
-        self.inpS_prev = self.toNeural(self.inpC_prev)
-
-        # Bowl
-        # Calculate the weights and biases for the Bowl:
+        # Initialize Bowl
+        self.bowl = Bowl(self)
+        # Initialize bowl parameters
         self._bowl_params()
-        self.Bowl_bC, self.Bowl_bS = self.bowl.set_biases()
-        self.Bowl_WC, self.Bowl_WS = self.bowl.set_weights()
 
         # Calculate the recommended Lambda and Temp values:
-        self.check_Q_T_lambda()
+        self.check_T_lambda()
 
-        # Add the bowl weights to the Harmoniy weights
+        # Calculate the weights and biases for the Bowl:
+        self.Bowl_bC, self.Bowl_bS = self.bowl.set_biases()
+        self.Bowl_WC, self.Bowl_WS = self.bowl.set_weights()
+        # Add the bowl weights to the Harmony weights
         self.merge_bowl()
 
-        # Initialize states
+        # Initialize activation states and external inputs
         self.initialize_state()
         self.create_result_states()
 
@@ -366,13 +356,12 @@ class Net(object):
             zeta : the neural version of the center of the bowl
 
         """
-        self.bowl = Bowl(self)
-        self.vars['bowl_strength'] = self.vars['q_init'] = self.bowl.strength + \
-            self.vars['beta_min_offset']
+        self.vars['bowl_strength'] = self.bowl.strength + self.vars['beta_min_offset']
+        self.vars['q_init'] = self.vars['bowl_strength']
         if self.vars['bowl_strength'] <= self.vars['beta_min_offset']:
             print(
                 f"Bowl overflow -- Set to the minimum value :  {self.vars['beta_min_offset']}")
-            # aise ValueError("Bowl overflow... strength lower than set tolerance. Modify the tolerance or fix the bug!")
+            # raise ValueError("Bowl overflow... strength lower than set tolerance. Modify the tolerance or fix the bug!")
             self.vars['bowl_strength'] = self.vars['beta_min_offset']
         if self.vars['bowl_strength'] > self.vars['q_max']:
             self.vars['bowl_strength'] = self.vars['q_max']
@@ -509,7 +498,7 @@ class Net(object):
 
     # ------------------RECOMMENDED VALUES FOR Q, L, T ------------------------------------
 
-    def check_Q_T_lambda(self):
+    def check_T_lambda(self):
         """Check the bowl parameters."""
         # Substituted with Bowl.recommend_strength()
         # self.vars['q_rec'], self.vars['q_rec_nd'] = self.recommend_Q()
@@ -530,8 +519,8 @@ class Net(object):
         else:
             self.vars['lambdaInit'] = self.settings["lambdaInit"]
 
+        # Check Temperature
         self.vars['T_rec'] = self.recommend_T()
-        # Check Temperatures
         if abs(self.vars['T_init'] - self.vars['T_rec']) > 1e-07:  # 1e-7 tolerance
             print(
                 f"T RECOMMENDED: {self.vars['T_rec']}, ACTUAL T = {self.vars['T_init']}")
@@ -564,16 +553,19 @@ class Net(object):
 
         """
         max_eigvalue = torch.max(torch.linalg.eigvalsh(self.Wc))
-        T = (self.settings["tgtStd"] ** 2) * \
-            (self.vars['bowl_strength'] - max_eigvalue)
+        T = (self.settings["tgtStd"] ** 2) * (self.vars['bowl_strength'] - max_eigvalue)
         return T
     # ---------------------- STATES AND INPUTS --------------------
 
     def initialize_state(self):
         """Initialize network states and load external inputs"""
-        self.state = self.initializer((self.nSym, 1))
-        self.inpS = self.initializer((self.nSym, 1))
+        # Initialize everything to zero
+        self.stateC = self.initializer((self.nSym, 1))
+        self.stateC_prev = self.initializer((self.nSym, 1))
+        self.state = self.toNeural(self.stateC)
+        self.state_prev = self.toNeural(matrix=self.stateC_prev)
         self.inpC = self.initializer((self.nSym, 1))
+        self.inpS = self.toNeural(self.inpC)
 
         # Create full traces
         self.create_full_traces()
@@ -581,7 +573,7 @@ class Net(object):
         # Initialize Lotka Volterra
         self.LV_Matrices()
 
-        # Initialize Temperature and Lambda
+        # Allocate Temperature and Lambda
         self.vars['T'] = 0
         self.vars['lambda'] = 0
 
@@ -865,6 +857,7 @@ class Net(object):
         # Create the representations for the stimulus
         stimulus = fortran_reshape(
             stimulus, (torch.numel(stimulus), 1)).double()
+        # TPR representation of the external input
         self.inpS = self.TP.matmul(stimulus)
         self.inpC = self.TP.T.matmul(self.inpS)
 
@@ -881,7 +874,7 @@ class Net(object):
         self.inpC = self.inpC.double()
 
         # Initialize state
-        self.initial_state = self.settings['initStateMean'] * torch.rand(
+        self.initial_state = self.settings['initStateMean'] + torch.rand(
             (self.grammar.nF, self.grammar.nR)) * self.settings["initStateStdev"]
         self.initial_state = self.initial_state.double()
         self.state = self.toNeural(self.initial_state)

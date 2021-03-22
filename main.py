@@ -4,7 +4,7 @@ from src.classes.Grammar import Grammar
 from src.gsc.gsc_network import Net
 import torch
 # Set seed for reproducibility
-torch.manual_seed(122)
+torch.manual_seed(123)
 
 # ---------------------------------------
 #       GRAMMAR AND CONSTRAINTS
@@ -26,7 +26,7 @@ G = Grammar(fillers, roles, emtpyFiller="_")
 
 # Single Harmony constraints
 # This is a matrix (nF, nR)
-cons = [("u/s2", .5), ("b/s1", .75)]
+cons = [("b/s1", 2), ("bh/s1", 2), ("u/s2", 5), ("d/s3", 2), ("dh/s3", 5)]
 G.update_Hc(cons)
 """
 
@@ -42,12 +42,12 @@ G.update_Hcc(cons)
 #           GSC NET
 # ---------------------------------------
 
-custom_settings = {"epochs": 2,
-                   "tgtStd": 1e-3,
-                   "emaFactor": 9e-2,
-                   "emaSpeedTol": 9e-5,
-                   "dt": 5e-3,
-                   "T_decay_rate": 1.25e-3,
+custom_settings = {"epochs": 5,
+                   "tgtStd": 0.00125,
+                   "emaFactor": 0.05,
+                   "emaSpeedTol": 0.002,
+                   "dt": 1e-4,
+                   "T_decay_rate": 0.05,
                    "maxSteps": 3000,
                    "printInterval": 1000}
 # Initialize
