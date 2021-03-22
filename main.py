@@ -48,10 +48,10 @@ custom_settings = {"epochs": 5,
                    "emaSpeedTol": 0.002,
                    "dt": 1e-4,
                    "T_decay_rate": 0.05,
-                   "maxSteps": 3000,
-                   "printInterval": 1000}
+                   "maxSteps": 30000,
+                   "printInterval": 5000}
 # Initialize
-N = Net(G, custom_settings=custom_settings)
+N = Net(G, custom_settings=custom_settings, extData_path="data/inp_pandas.csv")
 
 
 # Run
@@ -61,5 +61,7 @@ p = N()
 #           Plots
 # ---------------------------------------
 plot = Plot(net=N, fp_traces="data/full_traces.pt")
-plot.plotTP_probs(stim=0, epoch=0)
+plot.plotTP_probs(stim=1, epoch=0)
+
+
 print("Done")

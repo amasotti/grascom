@@ -63,7 +63,7 @@ class Plot(object):
         df = pd.DataFrame({"p(state)": self.stateCounts,
                            "Outputs": self.statesNames})
 
-        prob_plot = sns.barplot(x="Outputs", y="p(state)", data=df)
+        prob_plot = sns.barplot(x="Outputs", y="p(state)", data=df, estimator=np.mean)
         prob_plot.set_title(
             f"Output Probability (epoch {epoch}/stimulus {self.net.inputNames[stim]})")
         if save:
@@ -74,7 +74,7 @@ class Plot(object):
 
         df = pd.DataFrame({"H(state)": self.harmonies,
                            "Outputs": self.statesNames})
-        harm_plot = sns.barplot(x="Outputs", y="H(state)", data=df)
+        harm_plot = sns.barplot(x="Outputs", y="H(state)", data=df, estimator=np.mean)
         harm_plot.set_title(
             f"Output Harmonies (epoch {epoch}/stimulus {self.net.inputNames[stim]})")
         if save:
