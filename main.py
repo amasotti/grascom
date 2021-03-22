@@ -1,5 +1,4 @@
 # # # Playground and testing
-from src.gsc.plotting import Plot
 from src.classes.Grammar import Grammar
 from src.gsc.gsc_network import Net
 import torch
@@ -13,30 +12,31 @@ torch.manual_seed(123)
 fillers = ["bh", "b", "u", "d", "dh"]
 roles = ["s1", "s2", "s3"]
 
-"""similarities = torch.tensor([[1, 0.75, 0, 0, 0, 0],
+similarities = torch.tensor([[1, 0.75, 0, 0, 0, 0],
                              [0.75, 1, 0, 0, 0, 0],
                              [0, 0, 1, 0, 0, 0],
                              [0, 0, 0, 1, 0.75, 0],
                              [0, 0, 0, 0.75, 1, 0],
-                             [0, 0, 0, 0, 0, 1]])"""
+                             [0, 0, 0, 0, 0, 1]])
 
 # Build Grammar
-G = Grammar(fillers, roles, emtpyFiller="_")
-#G = Grammar(fillers, roles, emtpyFiller="_", fillerSimilarities=similarities)
+#G = Grammar(fillers, roles, emtpyFiller="_")
+G = Grammar(fillers, roles, emtpyFiller="_", fillerSimilarities=similarities)
+
 
 # Single Harmony constraints
 # This is a matrix (nF, nR)
-cons = [("b/s1", 2), ("bh/s1", 2), ("u/s2", 5), ("d/s3", 2), ("dh/s3", 5)]
+cons = [("u/s2", 5)]  # u should be the vowel, occupying the 2nd position
 G.update_Hc(cons)
-"""
+
 
 # Pairwise Harmony
 # Matrix dim: (nF, nR, nF, nR)
-cons = [("b/s1" "u/s2", 50),
-        ("u/s2", "d/s3", 50),
-        ("bh/s1", "dh/s3", -50)]
+cons = [("b/s1" "d/s2", -4),
+        ("bh/s2", "dh/s3", -10),
+        ("b/s1", "dh/s3", 10)]
 G.update_Hcc(cons)
-"""
+
 
 # ---------------------------------------
 #           GSC NET
@@ -44,10 +44,11 @@ G.update_Hcc(cons)
 
 custom_settings = {"epochs": 5,
                    "tgtStd": 0.00125,
-                   "emaFactor": 0.05,
+                   "emaFactor": 0.0089,
                    "emaSpeedTol": 0.002,
                    "dt": 1e-4,
-                   "T_decay_rate": 0.05,
+                   "TDecayRate": 0.05,
+                   "lambdaDecayRate": 0.50,
                    "maxSteps": 30000,
                    "printInterval": 5000}
 # Initialize
@@ -55,12 +56,18 @@ N = Net(G, custom_settings=custom_settings, extData_path="data/inp_pandas.csv")
 
 
 # Run
-p = N()
+N()
 
 # ---------------------------------------
 #           Plots
 # ---------------------------------------
-plot = Plot(net=N, fp_traces="data/full_traces.pt")
+nF = len(fillers) + 1  # +1 due to the empty filler added automatically
+nR = len(roles)
+statesDict = G.bind.states
+inputNames = N.inputNames
+
+plot = Plot(fp_traces="data/full_traces.pt", nf=nF, nr=nR,
+            inputNames=inputNames, statesDict=statesDict)
 plot.plotTP_probs(stim=1, epoch=0)
 
 
