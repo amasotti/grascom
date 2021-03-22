@@ -74,12 +74,17 @@ class Bowl(object):
         In the S-Space the biases are Harmony preserving (no-crosstalk)
 
         """
+        """ Python version 
         bowl_biasesC = self.Net.vars['bowl_strength'] * self.center
         if bowl_biasesC.shape != (self.Net.nSym, 1):  # create col vector
             bowl_biasesC = bowl_biasesC.reshape((self.Net.nSym, 1))
+        """
+        # Matlab version
+        bowl_biasesC = float(self.Net.vars['bowl_strength']) * float(self.Net.vars['bowl_center']) * torch.ones(self.Net.nSym, 1)
+        bowl_biasesS = self.Net.TPinv.T.matmul(bowl_biasesC.double())
 
-        bowl_biasesS = self.Net.TPinv.T.matmul(bowl_biasesC)
         return bowl_biasesC, bowl_biasesS
+
 
     def set_weights(self):
         """Set bowl weights.
@@ -90,8 +95,8 @@ class Bowl(object):
         The Weights in the Sspace are Harmony-preserving (No cross-talk)
         """
 
-        WC = -self.Net.vars['bowl_strength'] * \
+        WC = -float(self.Net.vars['bowl_strength']) * \
             torch.eye(self.Net.nSym, dtype=torch.double)
-        WS = (self.Net.TPinv.T.matmul(WC)).matmul(self.Net.TPinv)
+        WS = self.Net.TPinv.T.mm(WC).mm(self.Net.TPinv)
 
         return WC, WS

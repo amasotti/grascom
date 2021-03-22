@@ -77,11 +77,11 @@ class Net(object):
         #### ORIGINALLY IN THE SETTINGS FILE #####
         self.settings["epochs"] = 3  # Training epochs
         self.settings["tgtStd"] = 12e-6
-        self.settings['T_init'] = 1e-6
+        self.settings['TInit'] = 1e-6
         self.settings["TMin"] = 0
-        self.settings["TdecayRate"] = 0.05
+        self.settings["TDecayRate"] = 0.05
         self.settings["lambdaInit"] = 0.011387
-        self.settings["lambdaMin"] = 0.01
+        self.settings['lambdaMin'] = 0.0001
         self.settings["lambdaDecayRate"] = 0.60
         self.settings["maxSteps"] = 300000
         self.settings["emaSpeedTol"] = 0.009
@@ -111,10 +111,8 @@ class Net(object):
         """
         self.vars = dict()
         # Temperature params
-        self.vars['T_init'] = -1
-        self.vars['T_min'] = 0.0
-        self.vars['T_decay_rate'] = 0.05
-        self.vars['lambda_min'] = 0.0001
+        self.vars['TInit'] = -1
+        self.vars['TDecayRate'] = 0.05
         # Bowl params
         self.vars['q_init'] = 16.58  # initial strength for the bowl
         self.vars['q_max'] = 150.
@@ -425,7 +423,7 @@ class Net(object):
 
         """
         LV_c = self.toConceptual(self.state)  # (nF, nR)
-        LV_c = LV_c.mul(1 - LV_c + self.LV_inhM.matmul(LV_c))
+        LV_c = LV_c.mul((1 - LV_c) + self.LV_inhM.mm(LV_c))
         LV_s = self.toNeural(LV_c)
 
         return LV_c, LV_s
@@ -521,16 +519,16 @@ class Net(object):
 
         # Check Temperature
         self.vars['T_rec'] = self.recommend_T()
-        if abs(self.vars['T_init'] - self.vars['T_rec']) > 1e-07:  # 1e-7 tolerance
+        if abs(self.vars['TInit'] - self.vars['T_rec']) > 1e-07:  # 1e-7 tolerance
             print(
-                f"T RECOMMENDED: {self.vars['T_rec']}, ACTUAL T = {self.vars['T_init']}")
+                f"T RECOMMENDED: {self.vars['T_rec']}, ACTUAL T = {self.vars['TInit']}")
             choice = input(
                 "If you want to change to the recommended value press 'y', else any other key:")
             if choice.lower() == 'y':
-                self.vars['T_init'] = self.vars['T_rec']
+                self.vars['TInit'] = self.vars['T_rec']
                 self.logger(new_temperature=self.vars['T_rec'])
         else:
-            self.vars['T_init'] = self.settings['T_init']
+            self.vars['TInit'] = self.settings['TInit']
 
     def recommend_L(self):
         """Recommended lambda init value
@@ -693,6 +691,8 @@ class Net(object):
         diverge = False
         self.init_for_run(stimulus)
         harmony, state, stateC = self.calc_max_Harmony()
+        self.state = state
+        self.stateC = stateC
 
         # Update bowl parameters (They depend on the stimulus)
         # self._bowl_params()
@@ -712,12 +712,12 @@ class Net(object):
 
             # Copy the actual tensor to prev_S (RNN)
             self.stateC = self.toConceptual(self.state)
-            self.state_prev = self.state.clone().detach()
-            self.stateC_prev = self.stateC.clone().detach()
+            self.state_prev = self.state.clone()
+            self.stateC_prev = self.stateC.clone()
 
             # Now update the actual state
-            self.state += self.vars['dt'] * (self.vars['lambda'] * self.Hg + (
-                1-self.vars['lambda']) * self.LV_s) + self.noise
+            state_increment = (float(self.vars['lambda']) * self.Hg) + (float(self.vars['lambda']) * self.LV_s)
+            self.state += float(self.vars['dt']) * state_increment + self.noise
             self.stateC = self.toConceptual(self.state)
 
             if self.check_overflow():
@@ -760,6 +760,7 @@ class Net(object):
         self.vars['winners'] = winners
         self.vars['symBindings_winners'] = binding
         self.vars['S_trace'][self.vars['step'], :, :] = self.state
+        self.vars['prev_s'] = self.state_prev
         self.vars['Harmony_trace'][self.vars['step']] = harmony
         self.vars['speed_trace'][self.vars['step']] = self.calc_speed()
         self.vars['ema_trace'][self.vars['step']] = self.calc_ema()
@@ -769,6 +770,7 @@ class Net(object):
         self.vars['TPnum_trace'][self.vars['step']] = state_num
         self.vars['TP_h_trace'][self.vars['step']] = TP_h
         self.vars['TP_dist_trace'][self.vars['step']] = Cdist
+        self.vars['S_dist'] = Sdist
 
     def update_after_stim(self, nStimulus, epoch, diverge):
         """Update values and traces after each stimulus"""
@@ -881,7 +883,7 @@ class Net(object):
         self.stateC = self.toConceptual(self.state)
 
         # Set Lambda and Temperature
-        self.vars['T'] = self.vars['T_init']
+        self.vars['T'] = self.vars['TInit']
         self.vars['lambda'] = self.vars['lambdaInit']
         self.vars['step'] = 0
 
@@ -895,8 +897,8 @@ class Net(object):
             - the maximum Harmony of the actual state
 
         """
-        inpS = self.toNeural(self.inpC)
-        state = torch.linalg.pinv(self.W).matmul(-self.B - inpS)
+
+        state = torch.linalg.pinv(self.W).matmul(-self.B - self.inpS)
         stateC = self.toConceptual(state)
         harmony = self.calc_harmony(state=state)
         return harmony, state, stateC
@@ -923,7 +925,7 @@ class Net(object):
         """Calc the speed at which the Learning is improving"""
         if self.vars['step'] > 0:
             target_tensor = torch.abs(self.state - self.state_prev)
-            speed = column_max(target_tensor) / self.vars['dt']
+            speed = torch.max(target_tensor) / self.vars['dt']
         else:  # this is the first step, no calculation is possible
             speed = float('NaN')
         return speed
@@ -942,7 +944,7 @@ class Net(object):
         return ema
 
     def calc_nearest_state(self):
-        """Calc the nearest TP state and the most probable winner"""
+        """Calc the nearest TP state and the most probable winner"""#TODO: Check if we need here state, instead of self.state
         self.stateC = self.toConceptual(self.state)
         CTP, winners = self.find_winner()
 
@@ -1023,13 +1025,15 @@ class Net(object):
                                  self.vars['T']*torch.tensor(self.vars['dt']))
 
     def check_overflow(self):
-        """Check if the training converged or diverged"""
+        """Check if the training converged or diverged
+
+        The criterium is simple : no value in state and stateC should be inf or NaN
+
+        """
         self.stateC = self.toConceptual(self.state)
 
-        check_inf = torch.any(torch.isinf(self.stateC)) or torch.any(
-            torch.isinf(self.state))
-        check_nan = torch.any(torch.isnan(self.stateC)) or torch.any(
-            torch.isnan(self.state))
+        check_inf = torch.any(torch.isinf(self.stateC)) or torch.any(torch.isinf(self.state))
+        check_nan = torch.any(torch.isnan(self.stateC)) or torch.any(torch.isnan(self.state))
 
         if check_inf or check_nan:
             return True
@@ -1037,7 +1041,13 @@ class Net(object):
             return False
 
     def check_convergency(self):
-        """Check if the Net has converged"""
+        """Check if the Net has converged
+
+        The reference value here is the exponential average tolerance.
+        If the ema_speedTrace is lower or equal to the tolerance value,
+        the Net is taken to have converged
+
+        """
         if self.vars['ema_trace'][self.vars['step']] <= self.settings["emaSpeedTol"]:
             return True
         else:
@@ -1050,23 +1060,16 @@ class Net(object):
         # Set rate if we're at the beginning
         if self.vars['step'] <= 1:
             self.vars['lambdaDecayRate'] = self.settings['lambdaDecayRate']
+            self.vars['TDecayRate'] = self.settings['TDecayRate']
 
-        incremental_lambda = 1 - \
-            (1-self.vars['lambdaDecayRate'])**self.vars['dt']
-        incremental_temp = 1-(1-self.vars['T_decay_rate'])**self.vars['dt']
+        incremental_lambda = 1-(1-self.vars['lambdaDecayRate'])**self.vars['dt']
+        incremental_temp = 1-(1-self.vars['TDecayRate'])**self.vars['dt']
 
         # Update lambda
-        self.vars['lambda'] -= incremental_lambda*(
-            self.vars['lambda']-self.settings["lambdaMin"])
+        self.vars['lambda'] -= incremental_lambda*(self.vars['lambda']-self.settings["lambdaMin"])
 
         # Update T
-        self.vars['T'] -= incremental_temp * \
-            (self.vars['T']-self.settings["TMin"])
-
-    # -----------------------  VISUALIZATION -------------------------------
-
-    def plot(self):  # TODO:
-        pass
+        self.vars['T'] -= incremental_temp * (self.vars['T']-self.settings["TMin"])
 
     # -----------------------  SAVE -----------------------------------------
 
@@ -1102,6 +1105,7 @@ class Net(object):
             print(f"\nConceptual Matrix:")
             print(C_as_df)
             print(f"Nearest TP: {self.vars['TP_trace'][-1]}")
+            print(f"Distance between prediction and nearest TP: {self.vars['S_dist']}")
 
     def matrix_to_df(self, matrix):
         """Transform C-matrix to pandas df for printing"""
