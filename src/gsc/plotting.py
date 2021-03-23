@@ -206,6 +206,138 @@ class Plot(object):
             fig = mat_plot.get_figure()
             fig.savefig(outpath + "Matrix_representation")
 
+    def plot_act_harmony(self, stim, epoch, save=False, outpath="data/plots/"):
+        """Plot harmony of single activation states for a given stimulus at a
+        given training epoch"""
+        self.get_states(stim, epoch)
+
+        states = self.data['S_trace']
+        harmonies = torch.tensor(self.harmonies)
+
+        # Take the relevant s-states
+        states = states[stim, epoch, :, :, :]
+        # Initialize a tensor of the shape of numSteps
+        states_sum = torch.zeros(states.shape[0])
+        timesteps = torch.arange(0, states.shape[0])
+        for i in range(states.shape[0]):
+            states_sum[i] = states[i, :, :].sum()
+
+        df = pd.DataFrame({"timestep": timesteps, "activation": states_sum})
+
+        sns.scatterplot(data=df, x="timestep", y="activation")
+        plt.show()
+        return df
+
+    def plot_input_tstep(self, epoch, save=False, outpath="data/plots/", what="activation"):
+        """Plot harmony of single activation states for all stimuli at a
+        given training epoch"""
+
+        states = self.data['S_trace']
+
+        # Initialize the tensors
+        # sate_sum saves the activation values as sum of all activations
+        # it has dim (inputs, act/timestep, harmony/timestep)
+        states_sum = torch.zeros(len(self.inputNames), states.shape[2], 4)
+        timesteps = torch.arange(0, states.shape[2])
+
+        for i in range(len(self.inputNames)):
+            harmonies = self.data['Harmony_trace'][i, epoch, :]
+            s = states[i, epoch, :, :, :]
+            for tstep in range(s.shape[0]):
+                act = s[tstep, :, :].sum()
+                states_sum[i, tstep, 0] = i  # input number
+                states_sum[i, tstep, 1] = tstep
+                states_sum[i, tstep, 2] = act  # activation state (sum of)
+                # Harmony at that state
+                states_sum[i, tstep, 3] = harmonies[tstep]
+
+        # Join all data
+        collapsed = states_sum.view(
+            (len(self.inputNames)*states_sum.shape[1], 4))
+        collapsed = collapsed.numpy()
+
+        # Build list of  input names
+        stim_names = []
+        for name in self.inputNames:
+            for i in range(states.shape[2]):
+                stim_names.append(name)
+
+        df = pd.DataFrame(collapsed, columns=[
+                          "input", "tstep", "activation", "harmony"])
+        df['inpName'] = stim_names
+
+        if what == "activation":
+            p = sns.relplot(data=df, y="activation", x="tstep",
+                            hue="inpName", kind="line", palette="viridis")
+            p.set(title=f"Activation over time (epoch {epoch})")
+            plt.show()
+
+            if save:
+                fig = p.get_figure()
+                fig.savefig(outpath + f"all_activations_{epoch}")
+
+        if what == "harmony":
+            p = sns.relplot(data=df, y="harmony", x="tstep",
+                            hue="inpName", kind="line", palette="viridis")
+            p.set(title=f"Harmony over time (epoch {epoch})")
+            plt.show()
+
+            if save:
+                fig = p.get_figure()
+                fig.savefig(outpath + f"all_harmonies_{epoch}")
+
+        if what == "regplot_facet":
+            g = sns.FacetGrid(data=df, hue="inpName",
+                              col="inpName", palette="deep")
+            g.map(sns.regplot, "harmony", "activation")
+            g.set(title=f"Harmony vs. Activation (epoch {epoch})")
+            plt.show()
+
+            if save:
+                fig = g.get_figure()
+                fig.savefig(outpath + f"harmony_activation_{epoch}")
+
+        if what == "regplot":
+            g = sns.relplot(data=df, x="activation", y="harmony",
+                            hue="inpName", palette="deep", kind="line")
+            g.set(title=f"Harmony vs. Activation (epoch {epoch})")
+            plt.show()
+
+            if save:
+                fig = g.get_figure()
+                fig.savefig(outpath + f"harmony_activation_{epoch}")
+
+        if what == "harm_dist_inp":
+            g = sns.displot(data=df, x="harmony",
+                            hue="inpName", palette="deep", multiple="dodge")
+            g.set(title=f"Harmony vs. Activation (epoch {epoch})")
+            plt.show()
+
+            if save:
+                fig = g.get_figure()
+                fig.savefig(outpath + f"harmony_dist_{epoch}")
+
+        if what == "act_dist_inp":
+            g = sns.displot(data=df, x="activation",
+                            hue="inpName", palette="deep", multiple="dodge")
+            g.set(title=f"Harmony vs. Activation (epoch {epoch})")
+            plt.show()
+
+            if save:
+                fig = g.get_figure()
+                fig.savefig(outpath + f"activation_dist_{epoch}")
+
+        if what == "harmony_dev":
+            # Progressive harmony
+            g = sns.FacetGrid(df, col="inpName", height=2)
+            g.map(sns.distplot, "harmony")
+            plt.show()
+
+            if save:
+                fig = g.get_figure()
+                fig.savefig(outpath + f"harmony_distribution_{epoch}")
+        return df
+
     # ---------------- AUXILIARY FUNCS ------------------------
 
     def load_traces(self):
@@ -279,17 +411,4 @@ class Plot(object):
         return winners
 
 
-"""# --------------- TESTING AREA ------------------------------------------------
-# +1 due to the empty filler added automatically
-nF = len(N.grammar.fillers)
-nR = len(N.grammar.roles)
-statesDict = N.grammar.bind.states
-inputNames = N.inputNames
-
-plot = Plot(fp_traces="data/full_traces.pt", nf=nF,
-            nr=nR, inputNames=inputNames, statesDict=statesDict)
-
-
-a = plot.plot_harmonyProb(1, 4, lm=False)
-b = plot.plot_epoch(1, 2)
-"""
+# --------------- TESTING AREA ------------------------------------------------

@@ -91,7 +91,7 @@ class Net(object):
         mean = torch.ones(self.grammar.bind.nF,
                           self.grammar.bind.nR)/self.grammar.bind.nF
         self.settings["initStateMean"] = mean
-        self.settings["initStateStdev"] = .015
+        self.settings["initStateStdev"] = .025
         self.settings['clamped'] = False
 
         if self.custom_settings is not None:
