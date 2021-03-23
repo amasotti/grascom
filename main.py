@@ -31,14 +31,13 @@ G = Grammar(fillers, roles, emtpyFiller="#")
 # u should be the vowel, occupying the 2nd position
 cons = [("u/s2", 5), ("d/s2", -4)]
 G.update_Hc(cons)
-"""
 
 # Pairwise Harmony
 # Matrix dim: (nF, nR, nF, nR)
-cons = [("b/s1" "d/s2", -4),
+cons = [("b/s1", "d/s2", -4),
         ("bh/s2", "dh/s3", -10),
         ("b/s1", "dh/s3", 10)]
-G.update_Hcc(cons)"""
+G.update_Hcc(cons)
 
 
 # ---------------------------------------
@@ -48,7 +47,7 @@ G.update_Hcc(cons)"""
 custom_settings = {"epochs": 2,
                    "tgtStd": 0.00125,
                    "emaFactor": 0.1,
-                   "emaSpeedTol": .5,
+                   "emaSpeedTol": .0005,
                    "dt": 1e-5,
                    "TDecayRate": 0.05,
                    "TInit": 1e-5,

@@ -122,7 +122,7 @@ class Net(object):
         self.vars['bowl_strength'] = None
         self.vars['beta_min_offset'] = 2
         # Time step params
-        self.vars['max_dt'] = 0.1
+        self.vars['max_dt'] = 0.01
         self.vars['min_dt'] = 0.0005
         self.vars['dt'] = 0.009
         # Training traces
@@ -356,32 +356,18 @@ class Net(object):
             strength: a very important value, that constraints the quantization.
             zeta : the neural version of the center of the bowl
 
+            TODO: Implement quantization policies (see commit 81f75793fb787d978fd36f389fbefac4d27e40a4)
         """
-        try:
-            step = self.vars['step']
-            # Quantization policy:
-            if step <= 1000:
-                self.vars['bowl_strength'] = self.bowl.strength + \
-                    self.vars['beta_min_offset']
-            elif step < 5500 and step > 1000:
-                self.vars['bowl_strength'] = 2 * \
-                    (self.bowl.strength + self.vars['beta_min_offset'])
-            elif step >= 5500:
-                self.vars['bowl_strength'] = 3 * \
-                    (self.bowl.strength + self.vars['beta_min_offset'])
-
-        except KeyError:
-            self.vars['bowl_strength'] = self.bowl.strength + \
-                self.vars['beta_min_offset']
-            self.vars['q_init'] = self.vars['bowl_strength']
-            if self.vars['bowl_strength'] > self.vars['q_max']:
-                self.vars['bowl_strength'] = self.vars['q_max']
-
+        self.vars['bowl_strength'] = self.bowl.strength + \
+            self.vars['beta_min_offset']
+        self.vars['q_init'] = self.vars['bowl_strength']
         if self.vars['bowl_strength'] <= self.vars['beta_min_offset']:
             print(
                 f"Bowl overflow -- Set to the minimum value :  {self.vars['beta_min_offset']}")
             # raise ValueError("Bowl overflow... strength lower than set tolerance. Modify the tolerance or fix the bug!")
             self.vars['bowl_strength'] = self.vars['beta_min_offset']
+        if self.vars['bowl_strength'] > self.vars['q_max']:
+            self.vars['bowl_strength'] = self.vars['q_max']
 
         self.vars['zeta_bowl'] = self.toNeural(self.bowl.center)
         print(f"Value for Q set to {self.vars['bowl_strength']}")
@@ -701,9 +687,10 @@ class Net(object):
         diverge = False
         self.init_for_run(stimulus)
         harmony, state, stateC = self.calc_max_Harmony()
-        self.state = state
-        assert torch.allclose(stateC, self.toConceptual(self.state))
-        self.stateC = self.toConceptual(self.state)
+        # FIXME: Should I update the states here ? What is this state?
+        #self.state = state
+        #assert torch.allclose(stateC, self.toConceptual(self.state))
+        #self.stateC = self.toConceptual(self.state)
 
         # Update bowl parameters (They depend on the stimulus)
         self._bowl_params()
@@ -732,14 +719,14 @@ class Net(object):
 
             state_increment = float(
                 self.vars['dt']) * state_increment + self.noise
-            increment_check = torch.sqrt(
-                torch.tensordot(state_increment, state_increment))
-            if increment_check > 0:
-                self.vars['dt'] = min(
-                    self.vars['max_dt'], self.vars['min_dt'] / increment_check)
-                self.vars['dt'] = max(self.vars['min_dt'], self.vars['dt'])
-                if self.vars['step'] % self.settings["printInterval"] == 0:
-                    print(self.vars['dt'])
+            # increment_check = torch.sqrt(
+            #     torch.tensordot(state_increment, state_increment))
+            # if increment_check > 0:
+            #     self.vars['dt'] = min(
+            #         self.vars['max_dt'], self.vars['min_dt'] / increment_check)
+            #     self.vars['dt'] = max(self.vars['min_dt'], self.vars['dt'])
+            #     if self.vars['step'] % self.settings["printInterval"] == 0:
+            #         print(self.vars['dt'])
 
             self.state += state_increment
             self.stateC = self.toConceptual(self.state)
@@ -814,8 +801,9 @@ class Net(object):
     def update_after_stim(self, nStimulus, epoch, diverge):
         """Update values and traces after each stimulus"""
         H, s, c = self.calc_max_Harmony()
-        self.state = s
-        self.stateC = c
+        # FIXME: Should the state be updated here?
+        #self.state = s
+        #self.stateC = c
 
         # Update traces
         self.vars['maxHarmony'][:, :, nStimulus, epoch] = H
@@ -918,7 +906,7 @@ class Net(object):
         self.inpC = self.inpC.double()
 
         # Initialize state
-        self.initial_state = self.settings['initStateMean'] + torch.normal(0, 1,
+        self.initial_state = self.settings['initStateMean'] + torch.normal(0.5, .2,
                                                                            (self.grammar.nF, self.grammar.nR)) * self.settings["initStateStdev"]
         self.initial_state = self.initial_state.double()
         self.state = self.toNeural(self.initial_state)
@@ -1137,7 +1125,7 @@ class Net(object):
     def add_noise(self):
         """Add noise to the system according
             to the T parameter"""
-        self.noise = torch.normal(0, 1, self.state.shape).double()
+        self.noise = torch.normal(0.5, .2, self.state.shape).double()
         self.noise *= torch.sqrt(2 *
                                  self.vars['T']*torch.tensor(self.vars['dt']))
 
