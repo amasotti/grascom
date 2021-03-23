@@ -149,5 +149,7 @@ summary.txt
 stimuli_summary.txt
 # Test some auxialiary functions
 scratch_book.py
+example1.ipynb
+example2.ipynb
 # Backup for MATLAB double check
 *.mat

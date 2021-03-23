@@ -17,7 +17,6 @@ class Bowl(object):
         # change the order in which variables are initialized.
         # self.strength = self.recommend_strength()  # Python version
 
-
     def recommend_strength(self):
         """Calculate the recommended strength for the Bowl.
 
@@ -68,18 +67,18 @@ class Bowl(object):
     def set_biases(self):
         """Set the biases for the Bowl
 
-        The biases in the conceptual space are just 
+        The biases in the conceptual space are just
             strength * center * ones(nSymbols)
 
         In the S-Space the biases are Harmony preserving (no-crosstalk)
 
         """
         # Matlab version
-        bowl_biasesC = float(self.Net.vars['bowl_strength']) * float(self.Net.vars['bowl_center']) * torch.ones(self.Net.nSym, 1)
+        bowl_biasesC = float(self.Net.vars['bowl_strength']) * float(
+            self.Net.vars['bowl_center']) * torch.ones(self.Net.nSym, 1)
         bowl_biasesS = self.Net.TPinv.T.matmul(bowl_biasesC.double())
 
         return bowl_biasesC, bowl_biasesS
-
 
     def set_weights(self):
         """Set bowl weights.
@@ -95,3 +94,22 @@ class Bowl(object):
         WS = self.Net.TPinv.T.mm(WC).mm(self.Net.TPinv)
 
         return WC, WS
+
+    def calc_bowl_harmony(self, state=None):
+        "Compute the bowl harmony"
+        if state is None:
+            state = self.Net.state
+
+        z = self.Net.vars['zeta_bowl']
+        Hbowl = -0.5 * (state - z).T @ self.Net.Gc @ (state - z)
+        Hbowl *= self.strength
+        return Hbowl
+
+    def calc_bowl_gradient(self, state=None):
+        "Compute the bowl harmony gradient"
+        if state is None:
+            state = self.Net.state
+
+        z = self.Net.vars['zeta_bowl']
+        grad_bowl = self.strength * (-self.Net.Gc @ state + self.Net.Gc @ z)
+        return grad_bowl

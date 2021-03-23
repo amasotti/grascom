@@ -92,7 +92,7 @@ class Net(object):
                           self.grammar.bind.nR)/self.grammar.bind.nF
         self.settings["initStateMean"] = mean
         self.settings["initStateStdev"] = .025
-        self.settings['clamped'] = False
+        self.settings['clamp'] = True
 
         if self.custom_settings is not None:
             for key, value in self.custom_settings.items():
@@ -122,7 +122,7 @@ class Net(object):
         self.vars['bowl_strength'] = None
         self.vars['beta_min_offset'] = 2
         # Time step params
-        self.vars['max_dt'] = 0.01
+        self.vars['max_dt'] = 0.1
         self.vars['min_dt'] = 0.0005
         self.vars['dt'] = 0.009
         # Training traces
@@ -283,6 +283,7 @@ class Net(object):
         # create the inverse if TP is a square matrix:
         # Use the Moore-Penrose pseudoinverse if TP is not square
         self.TPinv = torch.inverse(self.TP)
+        self.Gc = self.TPinv.T.mm(self.TPinv)  # used for the bowl gradients
 
     def compute_neural_biases(self, dist="zero"):
         """Compute the Biases Matrix for the Neural space.
@@ -356,28 +357,32 @@ class Net(object):
             zeta : the neural version of the center of the bowl
 
         """
-        self.vars['bowl_strength'] = self.bowl.strength + \
-            self.vars['beta_min_offset']
-        self.vars['q_init'] = self.vars['bowl_strength']
+        try:
+            step = self.vars['step']
+            # Quantization policy:
+            if step <= 1000:
+                self.vars['bowl_strength'] = self.bowl.strength + \
+                    self.vars['beta_min_offset']
+            elif step < 5500 and step > 1000:
+                self.vars['bowl_strength'] = 2 * \
+                    (self.bowl.strength + self.vars['beta_min_offset'])
+            elif step >= 5500:
+                self.vars['bowl_strength'] = 3 * \
+                    (self.bowl.strength + self.vars['beta_min_offset'])
+
+        except KeyError:
+            self.vars['bowl_strength'] = self.bowl.strength + \
+                self.vars['beta_min_offset']
+            self.vars['q_init'] = self.vars['bowl_strength']
+            if self.vars['bowl_strength'] > self.vars['q_max']:
+                self.vars['bowl_strength'] = self.vars['q_max']
+
         if self.vars['bowl_strength'] <= self.vars['beta_min_offset']:
             print(
                 f"Bowl overflow -- Set to the minimum value :  {self.vars['beta_min_offset']}")
             # raise ValueError("Bowl overflow... strength lower than set tolerance. Modify the tolerance or fix the bug!")
             self.vars['bowl_strength'] = self.vars['beta_min_offset']
-        if self.vars['bowl_strength'] > self.vars['q_max']:
-            self.vars['bowl_strength'] = self.vars['q_max']
 
-        """
-        if self.vars['q_init'] != self.bowl.strength + self.vars['beta_min_offset']:
-            print(f"Recommended bowl strength : {self.bowl.strength} \t Actual value: {self.vars['q_init']}")
-            choice = input("Do you want to set the value to the recommended one: (y/n): ")
-            if choice.lower() == "y":
-                self.vars['bowl_strength'] = self.vars['q_init'] = self.bowl.strength + self.vars['beta_min_offset']
-            else:
-                self.vars['bowl_strength'] = self.vars['q_init']
-        else:
-            self.vars['bowl_strength'] = self.vars['q_init']
-        """
         self.vars['zeta_bowl'] = self.toNeural(self.bowl.center)
         print(f"Value for Q set to {self.vars['bowl_strength']}")
 
@@ -501,8 +506,6 @@ class Net(object):
 
     def check_T_lambda(self):
         """Check the bowl parameters."""
-        # Substituted with Bowl.recommend_strength()
-        # self.vars['q_rec'], self.vars['q_rec_nd'] = self.recommend_Q()
 
         self.vars['lambda_rec'] = self.recommend_L()
         # Check lambdas
@@ -669,6 +672,7 @@ class Net(object):
                                                              "stimuli": self.stimuli.numpy(),
                                                              "bowl_center": self.vars['bowl_center'],
                                                              "bowl_strength": self.vars['bowl_strength'],
+                                                             "zeta_bowl": self.vars['zeta_bowl'],
                                                              "LVinh": self.LV_inhM.numpy(), "LVc": self.LV_c.numpy(),
                                                              "LVs": self.LV_s.numpy()
                                                              })
@@ -698,14 +702,15 @@ class Net(object):
         self.init_for_run(stimulus)
         harmony, state, stateC = self.calc_max_Harmony()
         self.state = state
-        self.stateC = stateC
+        assert torch.allclose(stateC, self.toConceptual(self.state))
+        self.stateC = self.toConceptual(self.state)
 
         # Update bowl parameters (They depend on the stimulus)
-        # self._bowl_params()
+        self._bowl_params()
 
         # Update after each step
         self.updateAfterStep(harmony)
-        self.consoleLog_step(epoch=epoch+1, stimNum=stimNum+1)
+        self.consoleLog_step(stim=stimNum, epoch=epoch+1, stimNum=stimNum+1)
 
         # Loop over steps ~30 000 steps
         for step in range(1, self.settings['maxSteps']):
@@ -723,9 +728,28 @@ class Net(object):
 
             # Now update the actual state
             state_increment = (
-                float(self.vars['lambda']) * self.Hg) + (float(self.vars['lambda']) * self.LV_s)
-            self.state += float(self.vars['dt']) * state_increment + self.noise
+                float(self.vars['lambda']) * self.Hg) + (1-float(self.vars['lambda']) * self.LV_s)
+
+            state_increment = float(
+                self.vars['dt']) * state_increment + self.noise
+            increment_check = torch.sqrt(
+                torch.tensordot(state_increment, state_increment))
+            if increment_check > 0:
+                self.vars['dt'] = min(
+                    self.vars['max_dt'], self.vars['min_dt'] / increment_check)
+                self.vars['dt'] = max(self.vars['min_dt'], self.vars['dt'])
+                if self.vars['step'] % self.settings["printInterval"] == 0:
+                    print(self.vars['dt'])
+
+            self.state += state_increment
             self.stateC = self.toConceptual(self.state)
+
+            # Clamping --> Check if I should clamp here or before the increment
+            if self.settings['clamp']:
+                # Dummy debug variant
+                #self.stateC += stimulus
+                #self.state = self.toNeural(self.stateC)
+                self.calc_clamping(stimulus)
 
             if self.check_overflow():
                 diverge = True
@@ -733,17 +757,19 @@ class Net(object):
                 break
 
             harmony = self.calc_harmony()
+
             self.updateAfterStep(harmony=harmony)
             # Update Animation
             # Print information if step % print_every == 0
-            self.consoleLog_step(epoch=epoch+1, stimNum=stimNum+1)
+            self.consoleLog_step(
+                stim=stimNum, epoch=epoch+1, stimNum=stimNum+1)
 
             # Update Lambda and Temperature!
             self.update_lambda_T()
 
             if self.check_convergency():
                 print(
-                    f"The net has converged at step {self.vars['step']}, nearest State: {self.vars['TP_trace']}")
+                    f"The net has converged at step {self.vars['step']}, nearest State: {self.vars['TP_trace'][-1]}")
                 break
 
         if diverge:
@@ -753,7 +779,7 @@ class Net(object):
             print("FINAL STEP")
             print(
                 f"The net has reached the maximum number of steps {self.settings['maxSteps']}")
-            self.consoleLog_step()
+            self.consoleLog_step(stim=stimNum)
 
         return diverge, harmony
 
@@ -787,10 +813,12 @@ class Net(object):
 
     def update_after_stim(self, nStimulus, epoch, diverge):
         """Update values and traces after each stimulus"""
-        H, s, C = self.calc_max_Harmony()
+        H, s, c = self.calc_max_Harmony()
+        self.state = s
+        self.stateC = c
 
         # Update traces
-        self.vars['maxHarmony'][:, :, nStimulus, epoch] = C
+        self.vars['maxHarmony'][:, :, nStimulus, epoch] = H
 
         # Update finalStates traces
         inp = self.inputNames[nStimulus] + "/" + str(epoch)
@@ -872,6 +900,7 @@ class Net(object):
         # Create the representations for the stimulus
         stimulus = fortran_reshape(
             stimulus, (torch.numel(stimulus), 1)).double()
+        #stimulus = stimulus.reshape((torch.numel(stimulus), 1)).double()
         # TPR representation of the external input
         self.inpS = self.TP.matmul(stimulus)
         self.inpC = self.TP.T.matmul(self.inpS)
@@ -889,8 +918,8 @@ class Net(object):
         self.inpC = self.inpC.double()
 
         # Initialize state
-        self.initial_state = self.settings['initStateMean'] + torch.rand(
-            (self.grammar.nF, self.grammar.nR)) * self.settings["initStateStdev"]
+        self.initial_state = self.settings['initStateMean'] + torch.normal(0, 1,
+                                                                           (self.grammar.nF, self.grammar.nR)) * self.settings["initStateStdev"]
         self.initial_state = self.initial_state.double()
         self.state = self.toNeural(self.initial_state)
         self.stateC = self.toConceptual(self.state)
@@ -924,6 +953,7 @@ class Net(object):
 
         harmony = (self.B + self.inpS).T.matmul(state)
         harmony += .5 * state.T.matmul(self.W).matmul(state)
+        harmony += self.bowl.calc_bowl_harmony(self.state)
         return harmony
 
     def calc_harmony_dynamics(self):
@@ -932,6 +962,7 @@ class Net(object):
         HarmonyG = bias + input + W * s 
         """
         Hg = self.B + self.inpS + self.W.matmul(self.state)
+        Hg += self.bowl.calc_bowl_gradient(self.state)
         return Hg
 
     def calc_speed(self):
@@ -956,6 +987,79 @@ class Net(object):
                 1 - stepFactor)*self.vars['speed_trace'][self.vars['step']]
         return ema
 
+    def calc_clamping2(self, stim):
+        "Calculate clamping vector to update self.state"
+        clamp_vec = torch.zeros((self.grammar.nF, self.grammar.nR)).double()
+
+        idx = torch.argmax(stim, dim=0)
+        for n, i in enumerate(idx):
+            clamp_vec[n, i.item()] = 1.0
+
+        self.clampC = clamp_vec.double()
+
+        # Choose unclamped bindings
+        active_bb = self.stimulus_to_binding(stim)
+        active_bb_idx = [self.find_bindings(bb) for bb in active_bb]
+
+        # Choose unclamped bindings
+        inactive_bb = [b for b in torch.arange(
+            0, self.nSym).long() if b not in active_bb_idx]
+
+        B = self.TP[:, inactive_bb]
+        M = self.compute_projection(B)
+
+        self.clampS = self.toNeural(self.clampC)
+        self.state = M.matmul(self.state) + self.clampS
+        self.stateC = self.toConceptual(self.state)
+
+    def calc_clamping(self, stim):
+        "Calculate clamping vector to update self.state"
+        clamp_vec = torch.zeros((self.nSym)).double()
+
+        # Find active bindings
+        active_bb = self.stimulus_to_binding(stim)
+        active_bb_idx = [self.find_bindings(bb) for bb in active_bb]
+        clamp_vec[active_bb_idx] = 1.0
+        self.clampC = clamp_vec
+
+        # Choose unclamped bindings
+        inactive_bb = [b for b in torch.arange(
+            0, len(self.bind2index)).long() if b not in active_bb_idx]
+
+        B = self.TP[:, inactive_bb]
+        M = self.compute_projection(B)
+
+        self.clampS = self.toNeural(self.clampC)
+        self.state = M.matmul(self.state) + self.clampS
+        self.stateC = self.toConceptual(self.state)
+
+    def stimulus_to_binding(self, stim):
+        """Take a matrix in the conceptual space and return
+        a list of activated (>0) bindings """
+        bindings = []
+        for i, r in enumerate(stim):
+            for j, c in enumerate(r):
+                if c > 0:
+                    filler = self.index2filler[i]
+                    role = self.index2role[j]
+                    bindings.append(filler + "/" + role)
+        return bindings
+
+    @staticmethod
+    def compute_projection(M):
+        """Classical Projection Matrix
+            M * (M.T * M)^-1 * M.T 
+        """
+        P = torch.mm(M, torch.pinverse(M.T.matmul(M)).matmul(M.T))
+        P = P.double()
+        return P
+
+    # ----------------------------------------------------------------------------------
+    #
+    #                   FIND NEAREST OUTPUT and AUX FUNCTIONS
+    #
+    # -----------------------------------------------------------------------------------
+
     def calc_nearest_state(self):
         """Calc the nearest TP state and the most probable winner"""  # TODO: Check if we need here state, instead of self.state
         self.stateC = self.toConceptual(self.state)
@@ -978,12 +1082,12 @@ class Net(object):
         """
 
         # Extract the max value of each col in the conceptual state matrix
-        winners_idx = column_max(self.stateC, what='argmax')
+        winners_idx = torch.argmax(self.stateC, dim=0)
 
         M = torch.zeros_like(self.stateC)
         # Populate the matrix
         for r in range(M.shape[1]):
-            M[winners_idx[r], r] = 1
+            M[winners_idx[r].item(), r] = 1
         return M, winners_idx
 
     def find_TPname(self, filleridx):
@@ -1033,7 +1137,7 @@ class Net(object):
     def add_noise(self):
         """Add noise to the system according
             to the T parameter"""
-        self.noise = torch.rand(self.state.shape).double()
+        self.noise = torch.normal(0, 1, self.state.shape).double()
         self.noise *= torch.sqrt(2 *
                                  self.vars['T']*torch.tensor(self.vars['dt']))
 
@@ -1108,7 +1212,7 @@ class Net(object):
                     summary.write(str(value))
                     summary.write("\n" + "-"*80 + "\n\n")
 
-    def consoleLog_step(self, **kwargs):
+    def consoleLog_step(self, stim, **kwargs):
         """Print infos on the console at each n step"""
         n = self.settings["printInterval"]
         if self.vars['step'] == 0 or self.vars['step'] % n == 0:
@@ -1122,7 +1226,8 @@ class Net(object):
             C_as_df = self.matrix_to_df(C)
             print(f"\nConceptual Matrix:")
             print(C_as_df)
-            print(f"Nearest TP: {self.vars['TP_trace'][-1]}")
+            print(
+                f"Nearest TP: {self.vars['TP_trace'][-1]} --- Input : {self.inputNames[stim]}")
             print(
                 f"Distance between prediction and nearest TP: {self.vars['S_dist']}")
 

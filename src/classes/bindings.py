@@ -89,8 +89,7 @@ class Fillers(object):
 
         self.fillersNames = fillers
         # Add the padding element
-        # Used to model preference for simple codas or onsets. Not needed right now
-        #self.fillersNames.append(emptyFiller)
+        self.fillersNames.append(emptyFiller)
 
         # Build dictionaries
         self.filler2index, self.index2filler = self.fillersDicts()

@@ -4,7 +4,10 @@ Playground **Gra**dient **S**ymbolic **Com**putation (grascom)
 
 ---
 
-This project is a Python3 implementation of the GSC (Smolensky & Legendre 2016, Cho, Goldrick & Smolensky 2020).
+This project is a Python3 implementation of the GSC (Smolensky & Legendre 2016, Cho, Goldrick & Smolensky 2014,2020), a psychogically plausible, *continuous-state,
+continuous-time stochastic dynamical-system model of input processing*.
+The main interest for GSC comes from the fact that it makes possible to join classical symbolic cognitive theory with neural computation.
+
 The main inspiration for the code comes from the MATLAB program LDNet (v. 1.5), of which this repo is a python translation.
 Main differences of grascom compared with LDNet:
 
@@ -14,6 +17,9 @@ Main differences of grascom compared with LDNet:
 
 The idea is to use the GSC to model linguistic phenomena such as allomorphy or sandhi (external and internal) in Sanskrit, where we could assume that much of what at the surface appears to be chaotic, is just the consequence of blends of multiple underlying representations, each partially activated.
 See the Jupyter-notebook for a concrete instantiation.
+
+- `TPR_example` : How to represent symbolic structures using the Tensor Product Representation
+- `example` : GSC run on a toy-example (Sanskrit allomorphy: _bhud_ vs _budh_ aka Grassmann's Law)
 
 ---
 
@@ -57,8 +63,8 @@ There are for sure many parts that could be improved or present some bugs. Feel 
 
 ---
 
-- `data/` : This folder contains the external inputs/training data and is used to save logs and summaries.
-  - `data/inp.csv` : contains the training data. The first col (id) separates different inputs, same index = same word. The other columns give activation values for each filler in the word for each role in the grammar. The csv is read into the grammar using the `pandas` library.
+- `data/` : This folder contains the external inputs, logs and summaries.
+  - `data/inp.csv` : contains the training data. The first col (id) separates different inputs, same index = same word. The other columns give the activation values for each filler in the word for each role in the grammar. The csv is read into the grammar using the `pandas` library.
   - `*.mat`, `*.pt` : backup files in Matlab and Pytorch format.
 - `src/` :
   - `classes/` : A collection of Python classes, to process single components of the GSC model. These include the following classes: Roles, Fillers, Bindings, HarmonicGrammar, Bowl.
@@ -94,8 +100,7 @@ see `requirement.txt`
 
 - GSC-learning implementation
   - Possible starting points:
-    - - [GSR Learning](https://github.com/clairemoorecantwell/GSR_Learning) by C. Cantwell
-- I've just started an attempt to implement the same GSC as R package. By now the project proceeds slowly, mostly due to my unsufficient knowledges of the details of OOP in R. If anyone wants to contribute, just mail me. I would be glad to share this task!
+    - [GSR Learning](https://github.com/clairemoorecantwell/GSR_Learning) by C. Cantwell
 
 # Interesting resources
 

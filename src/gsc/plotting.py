@@ -17,12 +17,12 @@ import torch
 class Plot(object):
     """Main entry point for visualizing the GSC results"""
 
-    def __init__(self, nf, nr, inputNames, statesDict, fp_traces="data/full_traces.pt"):
+    def __init__(self, nf, nr, inputNames, statesDict, epochs=2, fp_traces="data/full_traces.pt"):
         self.path = fp_traces
 
         self.nF = nf
         self.nR = nr
-        self.epochs = 4
+        self.epochs = epochs
 
         self.inputNames = inputNames
         self.statesDict = statesDict
@@ -139,7 +139,7 @@ class Plot(object):
             df["H(output)"], df["P(output)"])
 
         if lm:
-            lm_plot = sns.lmplot(
+            lm_plot = sns.relplot(
                 x="H(output)", y="P(output)", data=df, ci=None, x_estimator=np.mean)
             lm_plot.set(
                 title="Correlation between Harmony and Quantization frequency")
@@ -206,7 +206,7 @@ class Plot(object):
             fig = mat_plot.get_figure()
             fig.savefig(outpath + "Matrix_representation")
 
-    def plot_act_harmony(self, stim, epoch, save=False, outpath="data/plots/"):
+    def plot_act_stim(self, stim, epoch, save=False, outpath="data/plots/"):
         """Plot harmony of single activation states for a given stimulus at a
         given training epoch"""
         self.get_states(stim, epoch)
@@ -224,8 +224,13 @@ class Plot(object):
 
         df = pd.DataFrame({"timestep": timesteps, "activation": states_sum})
 
-        sns.scatterplot(data=df, x="timestep", y="activation")
+        p = sns.scatterplot(data=df, x="timestep", y="activation")
         plt.show()
+
+        if save:
+            fig = p.get_figure()
+            fig.savefig(
+                outpath + f"Activation_through_time_ep_{epoch}_stim_{stim}")
         return df
 
     def plot_input_tstep(self, epoch, save=False, outpath="data/plots/", what="activation"):

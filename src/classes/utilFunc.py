@@ -60,7 +60,7 @@ def fixed_dotProduct_matrix(n, d, z=0, target_matrix=None):
             'The target matrix main diagonal should have only 1s (A == A)')
 
     # generate d * n random numbers from the Uniform dist.
-    M = torch.rand((d, n))
+    M = torch.normal(0, 1, (d, n))
     M = fortran_reshape(M.flatten(), (d, n))
 
     step0 = .1
