@@ -1,9 +1,11 @@
 # # # Playground and testing
 import matplotlib.pyplot as plt
-from src.gsc.plotting import Plot
+import torch
+
 from src.classes.Grammar import Grammar
 from src.gsc.gsc_network import Net
-import torch
+from src.gsc.plotting import Plot
+
 # Set seed for reproducibility
 torch.manual_seed(123)
 
@@ -23,22 +25,21 @@ roles = ["s1", "s2", "s3", "s4"]
 
 # Build Grammar
 G = Grammar(fillers, roles, emtpyFiller="#")
-#G = Grammar(fillers, roles, emtpyFiller="_", fillerSimilarities=similarities)
+# G = Grammar(fillers, roles, emtpyFiller="_", fillerSimilarities=similarities)
 
 
 # Single Harmony constraints
 # This is a matrix (nF, nR)
 # u should be the vowel, occupying the 2nd position
-cons = [("u/s2", 5), ("d/s2", -4)]
+cons = [("b/s1", 2), ("u/s2", 5), ("dh/s3", 2), ("#/s4", 2)]
 G.update_Hc(cons)
 
 # Pairwise Harmony
 # Matrix dim: (nF, nR, nF, nR)
 cons = [("b/s1", "d/s2", -4),
-        ("bh/s2", "dh/s3", -10),
+        ("bh/s1", "dh/s3", -10),
         ("b/s1", "dh/s3", 10)]
 G.update_Hcc(cons)
-
 
 # ---------------------------------------
 #           GSC NET
@@ -61,10 +62,8 @@ custom_settings = {"epochs": 2,
 # Initialize
 N = Net(G, custom_settings=custom_settings, extData_path="data/inp_pandas.csv")
 
-
 # Run
 N()
-
 
 # ---------------------------------------
 #           Plots
@@ -75,7 +74,6 @@ nr = len(roles)
 nf = len(fillers) + 1
 statesDict = G.bind.states
 inputNames = N.inputNames
-
 
 p = Plot(fp_traces="data/full_traces.pt", nf=nf, nr=nr,
          inputNames=inputNames, statesDict=statesDict)

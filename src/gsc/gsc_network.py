@@ -687,10 +687,12 @@ class Net(object):
         diverge = False
         self.init_for_run(stimulus)
         harmony, state, stateC = self.calc_max_Harmony()
-        # FIXME: Should I update the states here ? What is this state?
-        #self.state = state
+        # FIXME: Should I update the states here ?
+        # I think so, since state and stateC take the input into account, whereas at this point state is just randomly
+        # initialized
+        self.state = state
         #assert torch.allclose(stateC, self.toConceptual(self.state))
-        #self.stateC = self.toConceptual(self.state)
+        self.stateC = self.toConceptual(self.state)
 
         # Update bowl parameters (They depend on the stimulus)
         self._bowl_params()
@@ -975,19 +977,40 @@ class Net(object):
                 1 - stepFactor)*self.vars['speed_trace'][self.vars['step']]
         return ema
 
-    def calc_clamping2(self, stim):
+    def calc_clamping(self, stim):
         "Calculate clamping vector to update self.state"
-        clamp_vec = torch.zeros((self.grammar.nF, self.grammar.nR)).double()
+        clamp_vec = torch.zeros_like(self.stateC).double()
 
-        idx = torch.argmax(stim, dim=0)
-        for n, i in enumerate(idx):
-            clamp_vec[n, i.item()] = 1.0
+        #TODO: At moment using the argmax it updates only one index per col
+        # Blend inputs will not be correctly clamped.
+        # Perhaps a better way is to choose a constant clamping value and update
+        # the indices of all bindings occuring in the input
 
-        self.clampC = clamp_vec.double()
+        #idx = torch.argmax(stim, dim=0)
+        #for n, i in enumerate(idx):
+        #    clamp_vec[i.item(),n] = stim[i.item(),n]
+
 
         # Choose unclamped bindings
         active_bb = self.stimulus_to_binding(stim)
         active_bb_idx = [self.find_bindings(bb) for bb in active_bb]
+
+        binding_pairs = []
+        for binding in active_bb:
+            filler = binding.split("/")[0]
+            role = binding.split("/")[1]
+            filler = self.filler2index[filler]
+            role = self.role2index[role]
+            binding_pairs.append((filler, role))
+
+        for pair in binding_pairs:
+            # Clamping with input activations
+            clamp_vec[pair[0], pair[1]] = stim[pair[0], pair[1]]
+            # Clamping with a constant
+            #clamp_vec[pair[0], pair[1]] = .5
+
+        self.clampC = clamp_vec.double()
+
 
         # Choose unclamped bindings
         inactive_bb = [b for b in torch.arange(
@@ -1000,14 +1023,15 @@ class Net(object):
         self.state = M.matmul(self.state) + self.clampS
         self.stateC = self.toConceptual(self.state)
 
-    def calc_clamping(self, stim):
+    def calc_clamping2(self, stim):
         "Calculate clamping vector to update self.state"
         clamp_vec = torch.zeros((self.nSym)).double()
 
         # Find active bindings
         active_bb = self.stimulus_to_binding(stim)
         active_bb_idx = [self.find_bindings(bb) for bb in active_bb]
-        clamp_vec[active_bb_idx] = 1.0
+
+        clamp_vec[active_bb_idx] = .5
         self.clampC = clamp_vec
 
         # Choose unclamped bindings
@@ -1226,6 +1250,31 @@ class Net(object):
         df = pd.DataFrame(matrix, columns=list(
             self.role2index.keys()), index=list(self.filler2index))
         return df
+
+    def visualizeC(self, M=None):
+        """Visualize the C-state matrix
+        Small debug function to show a heatmap representation
+        of the C-state.
+
+        :param
+            - M : the matrix to visualize
+
+        :return
+            - None but shows the heatmap visualization and prints
+            the corresponding winning TP state
+        """
+        try:
+            import seaborn as sns
+            import matplotlib.pyplot as plt
+        except:
+            print("Seaborn or matplotlib not imported...can't build the heatmap")
+        if M is None:
+            M = self.stateC
+        a = torch.argmax(M, dim=0)
+        print(self.find_TPname(a))
+        M = pd.DataFrame(M.numpy(), index=list(self.filler2index.keys()), columns=list(self.role2index.keys()))
+        sns.heatmap(M, annot=True, cmap="Blues")
+        plt.show()
 
     def save_final_traces(self):
         """Save the matrices produced as traces to disk

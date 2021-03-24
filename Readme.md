@@ -4,8 +4,8 @@ Playground **Gra**dient **S**ymbolic **Com**putation (grascom)
 
 ---
 
-This project is a Python3 implementation of the GSC (Smolensky & Legendre 2016, Cho, Goldrick & Smolensky 2014,2020), a psychogically plausible, *continuous-state,
-continuous-time stochastic dynamical-system model of input processing*.
+This project is a Python3 implementation of the GSC (Smolensky & Legendre 2016, Cho, Goldrick & Smolensky 2014,2020), a psychogically plausible, _continuous-state,
+continuous-time stochastic dynamical-system model of input processing_.
 The main interest for GSC comes from the fact that it makes possible to join classical symbolic cognitive theory with neural computation.
 
 The main inspiration for the code comes from the MATLAB program LDNet (v. 1.5), of which this repo is a python translation.
@@ -15,8 +15,10 @@ Main differences of grascom compared with LDNet:
 - It lacks the sequential mode and 3d Animation (for now)
 - Plotting using [seaborn](https://seaborn.pydata.org)
 
-The idea is to use the GSC to model linguistic phenomena such as allomorphy or sandhi (external and internal) in Sanskrit, where we could assume that much of what at the surface appears to be chaotic, is just the consequence of blends of multiple underlying representations, each partially activated.
+LDNet was originally developed to model phenomena such as voicing neutralization or twister production.
+The idea here is to use the GSC to model linguistic phenomena such as allomorphy or sandhi (external and internal), where we could assume that much of chaotic surface forms are just the consequence of blends of multiple underlying representations, each partially activated.
 See the Jupyter-notebook for a concrete instantiation.
+At moment very simplistic positional roles were used. I'm thinking about implementing some kind of [*span* (or *brick*) *roles*](https://doi.org/10.31234/osf.io/utcgv).
 
 - `TPR_example` : How to represent symbolic structures using the Tensor Product Representation
 - `example` : GSC run on a toy-example (Sanskrit allomorphy: _bhud_ vs _budh_ aka Grassmann's Law)
@@ -91,10 +93,14 @@ see `requirement.txt`
 <em>See under "Issues".</em>
 
 - <del>Create a JupyterNotebook (better for visualizing)</del>
+- Implement Span Roles/brick roles to represent recursive structure?
+- Implement quantization policies (different bowl_strengths for different timesteps)
 - Start documentation
 - Improve plots, add other plotting functions
+- Test more complex input data
 - Move the tensors to CUDA to improve speed.
-- 3d animation
+- 3d animation / Visualize Quantization
+- Check clamping techniques (constant value? Projection matrix? input activations?)
 
 ## Next Project(s)
 
