@@ -20,6 +20,7 @@ class Roles(object):
         # Roles Matrix
         self.R = self.rolesMatrix()
         #self.R = self.positionalRoles(dotp=0)
+        #self.R = torch.eye(self.nR)
 
     def rolesMatrix(self, dp=0):
         """Build the role Matrix, dp= 0, i.e. roles are maximally different"""
@@ -88,8 +89,8 @@ class Fillers(object):
     def __init__(self, fillers, fillerSimilarities=None, emptyFiller="#"):
 
         self.fillersNames = fillers
-        # Add the padding element
-        self.fillersNames.append(emptyFiller)
+        # Add the padding element (useful to represent an empty onset or coda)
+        # self.fillersNames.append(emptyFiller)
 
         # Build dictionaries
         self.filler2index, self.index2filler = self.fillersDicts()
@@ -102,6 +103,7 @@ class Fillers(object):
 
         # Filler Matrix
         self.F = self.fillersMatrix(self.similarities)
+        #self.F = torch.eye(self.nF)
 
     def fillersMatrix(self, target_matrix):
         print(f"Buil Filler Matrix")

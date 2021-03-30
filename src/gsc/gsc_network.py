@@ -5,6 +5,7 @@ __date__ : Februar 201
 __author__ : A. Masotti (on the model of LDNet 1.5)
 
 """
+from os import close
 import scipy
 from src.classes.utilFunc import column_max, fortran_reshape
 from src.classes.Bowl import Bowl
@@ -92,7 +93,7 @@ class Net(object):
                           self.grammar.bind.nR)/self.grammar.bind.nF
         self.settings["initStateMean"] = mean
         self.settings["initStateStdev"] = .025
-        self.settings['clamp'] = True
+        self.settings['clamp'] = False
 
         if self.custom_settings is not None:
             for key, value in self.custom_settings.items():
@@ -296,7 +297,7 @@ class Net(object):
         """
         # flatten
         harmonies = fortran_reshape(self.Hc, (torch.numel(self.Hc), 1))
-        # harmonies = self.Hc.reshape((torch.numel(self.Hc), 1))
+        #harmonies = self.Hc.reshape((torch.numel(self.Hc), 1))
 
         # Initialize
         biases = self.initializer((self.nSym, 1), dist=dist)
@@ -630,7 +631,7 @@ class Net(object):
         """Transform Neural vectors into local vectors."""
 
         if matrix is None:
-            matrix = self.state
+            matrix = self.state.double()
         if len(matrix.shape) > 1:
             C = torch.mm(self.TPinv, matrix)
         else:
@@ -660,7 +661,7 @@ class Net(object):
                                                              "bowl_strength": self.vars['bowl_strength'],
                                                              "zeta_bowl": self.vars['zeta_bowl'],
                                                              "LVinh": self.LV_inhM.numpy(), "LVc": self.LV_c.numpy(),
-                                                             "LVs": self.LV_s.numpy()
+                                                             "LVs": self.LV_s.numpy(), "R": self.R.numpy(), "F": self.F.numpy()
                                                              })
         for epoch in trange(self.settings['epochs'], desc="Epoch routine:"):
             self.vars['epoch'] = epoch
@@ -689,11 +690,14 @@ class Net(object):
         harmony, state, stateC = self.calc_max_Harmony()
         # FIXME: Should I update the states here ?
         # I think so, since state and stateC take the input into account, whereas at this point state is just randomly
-        # initialized
+        """
+        print(stateC)
+        print(f"After harmony calc: {self.find_TPname(self.find_winner()[1])}")
+        """
         self.state = state
         #assert torch.allclose(stateC, self.toConceptual(self.state))
         self.stateC = self.toConceptual(self.state)
-
+        # self.visualizeC(self.stateC)
         # Update bowl parameters (They depend on the stimulus)
         self._bowl_params()
 
@@ -732,6 +736,14 @@ class Net(object):
 
             self.state += state_increment
             self.stateC = self.toConceptual(self.state)
+            """DEBUG
+            if self.vars['step'] % 50 == 0:
+                # self.visualizeC(self.stateC)
+                pass
+            print(
+                f"after Increment: {self.find_TPname(self.find_winner()[1])}")
+            print(self.stateC)
+            """
 
             # Clamping --> Check if I should clamp here or before the increment
             if self.settings['clamp']:
@@ -893,7 +905,8 @@ class Net(object):
         #stimulus = stimulus.reshape((torch.numel(stimulus), 1)).double()
         # TPR representation of the external input
         self.inpS = self.TP.matmul(stimulus)
-        self.inpC = self.TP.T.matmul(self.inpS)
+        #self.inpC = self.TP.T.matmul(self.inpS)
+        self.inpC = self.toConceptual(self.inpS)
 
         # ----------- ALTERNATIVE ---------------------
         # Let's try the matrix version : TPR = Fillers * Bind * Roles
@@ -952,14 +965,23 @@ class Net(object):
         HarmonyG = bias + input + W * s 
         """
         Hg = self.B + self.inpS + self.W.matmul(self.state)
-        Hg += self.bowl.calc_bowl_gradient(self.state)
+        #Hg += self.bowl.calc_bowl_gradient(self.state)
         return Hg
 
-    def calc_speed(self):
-        """Calc the speed at which the Learning is improving"""
+    def calc_speed2(self):
+        """Calc the speed at which the Learning is improving divided by dt"""
         if self.vars['step'] > 0:
             target_tensor = torch.abs(self.state - self.state_prev)
             speed = torch.max(target_tensor) / self.vars['dt']
+        else:  # this is the first step, no calculation is possible
+            speed = float('NaN')
+        return speed
+
+    def calc_speed(self):
+        """Absolute improvement as max absolute change between previous and current state"""
+        if self.vars['step'] > 0:
+            target_tensor = torch.abs(self.state - self.state_prev)
+            speed = torch.max(target_tensor)
         else:  # this is the first step, no calculation is possible
             speed = float('NaN')
         return speed
@@ -981,15 +1003,14 @@ class Net(object):
         "Calculate clamping vector to update self.state"
         clamp_vec = torch.zeros_like(self.stateC).double()
 
-        #TODO: At moment using the argmax it updates only one index per col
+        # TODO: At moment using the argmax it updates only one index per col
         # Blend inputs will not be correctly clamped.
         # Perhaps a better way is to choose a constant clamping value and update
         # the indices of all bindings occuring in the input
 
         #idx = torch.argmax(stim, dim=0)
-        #for n, i in enumerate(idx):
+        # for n, i in enumerate(idx):
         #    clamp_vec[i.item(),n] = stim[i.item(),n]
-
 
         # Choose unclamped bindings
         active_bb = self.stimulus_to_binding(stim)
@@ -1005,12 +1026,11 @@ class Net(object):
 
         for pair in binding_pairs:
             # Clamping with input activations
-            clamp_vec[pair[0], pair[1]] = stim[pair[0], pair[1]]
+            #clamp_vec[pair[0], pair[1]] = stim[pair[0], pair[1]]
             # Clamping with a constant
-            #clamp_vec[pair[0], pair[1]] = .5
+            clamp_vec[pair[0], pair[1]] = .5
 
         self.clampC = clamp_vec.double()
-
 
         # Choose unclamped bindings
         inactive_bb = [b for b in torch.arange(
@@ -1272,7 +1292,8 @@ class Net(object):
             M = self.stateC
         a = torch.argmax(M, dim=0)
         print(self.find_TPname(a))
-        M = pd.DataFrame(M.numpy(), index=list(self.filler2index.keys()), columns=list(self.role2index.keys()))
+        M = pd.DataFrame(M.numpy(), index=list(
+            self.filler2index.keys()), columns=list(self.role2index.keys()))
         sns.heatmap(M, annot=True, cmap="Blues")
         plt.show()
 

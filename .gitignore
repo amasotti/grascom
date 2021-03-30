@@ -151,5 +151,4 @@ stimuli_summary.txt
 scratch_book.py
 #example1.ipynb
 example2.ipynb
-# Backup for MATLAB double check
-*.mat
+inp3.csv

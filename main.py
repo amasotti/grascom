@@ -7,21 +7,14 @@ from src.gsc.gsc_network import Net
 from src.gsc.plotting import Plot
 
 # Set seed for reproducibility
-torch.manual_seed(123)
+torch.manual_seed(1111)
 
 # ---------------------------------------
 #       GRAMMAR AND CONSTRAINTS
 # ---------------------------------------
 # Fillers and Roles
-fillers = ["bh", "b", "u", "d", "dh"]
-roles = ["s1", "s2", "s3", "s4"]
-
-"""similarities = torch.tensor([[1, 0.75, 0, 0, 0,0],
-                             [0.75, 1, 0, 0, 0, 0],
-                             [0, 0, 1, 0, 0, 0],
-                             [0, 0, 0, 1, 0.75, 0],
-                             [0, 0, 0, 0.75, 1, 0],
-                             [0, 0, 0, 0, 0, 1]])"""
+fillers = ["bhud", "budh", "bhut", "bud", "bhudi", "budhi", "ta", "dha"]
+roles = ["r", "s"]  # root & suffix
 
 # Build Grammar
 G = Grammar(fillers, roles, emtpyFiller="#")
@@ -30,35 +23,90 @@ G = Grammar(fillers, roles, emtpyFiller="#")
 
 # Single Harmony constraints
 # This is a matrix (nF, nR)
-# u should be the vowel, occupying the 2nd position
-cons = [("b/s1", 2), ("u/s2", 5), ("dh/s3", 2), ("#/s4", 2)]
+
+# 1. attempt : activations here
+# distinguish between suffix and root (I know... very naive attempt)
+"""cons = [("bhud/r", .6), ("budh/r", .9), ("bud/r", .4),
+        ("bhut/r", .1), ("dha/s", .5), ("ta/s", .6),
+        
+        ("bhud/s", -10), ("budh/s", -10), ("bud/s", -10),
+        ("bhut/s", -10),
+        ("dha/r", -10), ("ta/r", -10)
+        ]"""
+# 2. Attempt : Harmonies here (agnostic) and activations in the input file
+cons = [("bhud/r", 1), ("budh/r", 1), ("bud/r", 1), ("bhut/r", 1),
+        ("bhudi/r", 1), ("bhudi/r", 1), ("dha/s", 1), ("ta/s", 1),
+        ("bhud/s", -10), ("budh/s", -10), ("bud/s", -10), ("bhut/s", -10),
+        ("bhudi/s", -10), ("bhudi/s", -10), ("dha/r", -10), ("ta/r", -10)]
 G.update_Hc(cons)
 
 # Pairwise Harmony
 # Matrix dim: (nF, nR, nF, nR)
-cons = [("b/s1", "d/s2", -4),
-        ("bh/s1", "dh/s3", -10),
-        ("b/s1", "dh/s3", 10)]
+"""
+# Distinguish between roots and suffixes (naive attempt, I know...)
+suffRoot = [("bhud/r", "bhud/s", -10),  # bhud
+            ("bhud/r", "budh/s", -10),
+            ("bhud/r", "bhudi/s", -10),
+            ("bhud/r", "budhi/s", -10),
+            ("bhud/r", "bhut/s", -10),
+            ("bhut/r", "bhut/s", -10),  # bhut
+            ("bhut/r", "budh/s", -10),
+            ("bhut/r", "bhudi/s", -10),
+            ("bhut/r", "budhi/s", -10),
+            ("budh/r", "bhud/s", -10),  # budh
+            ("budh/r", "bhut/s", -10),
+            ("budh/r", "budh/s", -10),
+            ("budh/r", "bhudi/s", -10),
+            ("budh/r", "budhi/s", -10),
+            ("budhi/r", "bhut/s", -10),
+            ("bhudi/r", "bhut/s", -10),
+            ("bhudi/r", "budhi/s", -10),
+            ("budhi/r", "budhi/s", -10),
+            ("bhudi/r", "bhudi/s", -10),
+            ("ta/s", "ta/s", -10),  # ta
+            ("ta/s", "dha/s", -10)
+            ]
+G.update_Hcc(suffRoot)
+"""
+
+# Implements the Harmonic Constraints (see Optimization project written in Julia)
+cons = [("bhud/r", "ta/s", -3),  # violates voice contrast
+        ("budh/r", "ta/s", -3),  # violates voice contrast and License(laryngeal)
+        ("bhud/r", "dha/s", -1),  # lazyness
+        ("budh/r", "dha/s", -4),  # License & Lazyness
+        ("bhut/r", "dha/s", -4),  # Lazyness and voice contrast
+        ("bud/r", "dha/s", -1),  # Ident(lar)
+        ("bud/r", "ta/s", - 4),  # voice contrast & Ident(lar)
+        ("bhud/r", "ta/s", -10.5),
+        ("bhudi/r", "ta/s", - 3),  # DepIO
+        ("budhi/r", "ta/s", - 3),  # DepIO
+        ("bhudi/r", "ta/s", - 5),  # DepIO & Ident(lar)
+        ("budhi/r", "ta/s", - 5),  # DepIO & Ident(lar)
+        ("bud/r", "dha/s", 10),  # Give the optimal candidate more harmony
+        ]
+
+
 G.update_Hcc(cons)
 
 # ---------------------------------------
 #           GSC NET
 # ---------------------------------------
 
-custom_settings = {"epochs": 2,
+custom_settings = {"epochs": 3,
                    "tgtStd": 0.00125,
-                   "emaFactor": 0.1,
-                   "emaSpeedTol": .0005,
-                   "dt": 1e-5,
-                   "TDecayRate": 0.05,
-                   "TInit": 1e-5,
+                   "emaFactor": 0.001,
+                   "emaSpeedTol": .00051,
+                   "dt": 1e-3,
+                   "TDecayRate": 0.02,
+                   "TInit": 8e-3,
                    "lambdaDecayRate": 0.75,
                    "lambdaMin": 0.01,
                    "maxSteps": 20000,
                    "printInterval": 10000,
                    'bowl_center': 0.4,
                    'beta_min_offset': .01,
-                   'q_init': 16}
+                   'q_init': 4.5,
+                   'clamp': False}
 # Initialize
 N = Net(G, custom_settings=custom_settings, extData_path="data/inp_pandas.csv")
 
@@ -84,3 +132,6 @@ df = p.plot_epoch(0, last_epoch)
 
 plt.figure(figsize=(10, 8))
 df = p.plot_final_states(save=True)
+
+df = p.plot_act_stim(0, 2)
+#df = p.plot_harmonies(0, 2)
