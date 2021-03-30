@@ -4,8 +4,7 @@ Playground **Gra**dient **S**ymbolic **Com**putation (grascom)
 
 ---
 
-This project is a Python3 implementation of the GSC (Smolensky & Legendre 2016, Cho, Goldrick & Smolensky 2014,2020), a psychogically plausible, _continuous-state,
-continuous-time stochastic dynamical-system model of input processing_.
+This project is a Python3 implementation of the GSC (Smolensky & Legendre 2016, Cho, Goldrick & Smolensky 2014,2020), a psychogically plausible, _continuous-state, continuous-time stochastic dynamical-system model of input processing_.
 The main interest for GSC comes from the fact that it makes possible to join classical symbolic cognitive theory with neural computation.
 
 The main inspiration for the code comes from the MATLAB program LDNet (v. 1.5), of which this repo is a python translation.
@@ -18,7 +17,7 @@ Main differences of grascom compared with LDNet:
 LDNet was originally developed to model phenomena such as voicing neutralization or twister production.
 The idea here is to use the GSC to model linguistic phenomena such as allomorphy or sandhi (external and internal), where we could assume that much of chaotic surface forms are just the consequence of blends of multiple underlying representations, each partially activated.
 See the Jupyter-notebook for a concrete instantiation.
-At moment very simplistic positional roles were used. I'm thinking about implementing some kind of [*span* (or *brick*) *roles*](https://doi.org/10.31234/osf.io/utcgv).
+At moment very simplistic positional roles were used. I'm thinking about implementing some kind of [_span_ (or _brick_) _roles_](https://doi.org/10.31234/osf.io/utcgv).
 
 - `TPR_example` : How to represent symbolic structures using the Tensor Product Representation
 - `example` : GSC run on a toy-example (Sanskrit allomorphy: _bhud_ vs _budh_ aka Grassmann's Law)
@@ -31,35 +30,53 @@ There are for sure many parts that could be improved or present some bugs. Feel 
 ## Structure
 
 ```
-    grascom
-    │   .gitignore
-    │   LICENSE
-    │   main.py
-    │   Readme.md
-    │   requirements.txt
-    │   setup.py
+grascom
+│   LICENSE
+│   main.py
+│   Readme.md
+│   requirements.txt
+│
+├───data
+│   │   full_traces.mat
+│   │   full_traces.pt
+│   │   initialized_mats.mat
+│   │   inp2.csv
+│   │   inp_pandas.csv
+│   │   params.mat
+│   │   params.pt
+│   │   stimuli_summary.txt
+│   │   summary.txt
+│   │
+│   └───plots
+│           harmonized_input.png
+│           Input_gradient_activation.png
+│           plotsFrequency_ep1_stimulus_0.png
+│           plotsHarmonies_ep1_stimulus_0.png
+│           random_activation.png
+├───docs
+│       LDnet1.5 Manual.pdf
+│       Readme.md
+│
+├───examples
+│       example.ipynb
+│       tableaux.xlsx
+│       TPR_example.ipynb
+│
+├───Optimization
+│       optimizeWA..pdf
+│       optimizeWA.jl
+│
+└───src
     │
-    ├───data
-    │    │   Constraints.py # to be deleted
-    │    │   initialized_mats.mat
-    │    │   inputs.xlsx
-    │    │   inp_pandas.csv
-    │    │   summary.txt
-    │    │
-    │    └─── plots
-    │
-    └───src
-        │   Constraints.py # to be deleted
-        │
-        ├───classes
-        │      bindings.py
-        │      Bowl.py
-        │      Grammar.py
-        │      utilFunc.py
-        │
-        ├───gsc
-        │      gsc_network.py
-        │      plotting.py
+    ├───classes
+    │      bindings.py
+    │      Bowl.py
+    │      Grammar.py
+    │      utilFunc.py
+    └───gsc
+         gsc_network.py
+         plotting.py
+
 
 ```
 
