@@ -2,28 +2,48 @@ include("symbolic_repr.jl")
 
 
 # Fillers list
+# For learning
 α = 0.1
-bu = symbolic_repr.filler("bu",true, false,α)
-bhu = symbolic_repr.filler("bhu",true, true,α+.3)
+
+
+#---
+# For buddha
+bu = symbolic_repr.filler("bu",true, false,α+.2) # model higher frequency of bu
+bhu = symbolic_repr.filler("bhu",true, true,α)
 d = symbolic_repr.filler("d",true, false,α)
-dh = symbolic_repr.filler("dh", true, true,α+.3)
+dh = symbolic_repr.filler("dh", true, true,α)
 t = symbolic_repr.filler("t", false, false,α)
-dha = symbolic_repr.filler("dha", true, true,α)
-ta = symbolic_repr.filler("ta", false, false,α+.3)
-dhi = symbolic_repr.filler("dhi", true, true,α)
-di = symbolic_repr.filler("di", true, false,α)
+dhi = symbolic_repr.filler("dhi", false, true,α)
+di = symbolic_repr.filler("di", false, false,α)
 ti = symbolic_repr.filler("ti", false, false,α)
+dha = symbolic_repr.filler("dha", true, true,α)
+ta = symbolic_repr.filler("ta", false, false,α)
+
+
+#---
+# bodhami
+bo = symbolic_repr.filler("bo",true, false,α)
+bho = symbolic_repr.filler("bho",true, true,α)
+da = symbolic_repr.filler("da",true, false,α)
+mi = symbolic_repr.filler("mi",true,false,1) # discrete
+# Define possible fillers for possible roles
+
+#---
+# bhotsyati
+syati = symbolic_repr.filler("syati",false,false,1) # discrete
+#---
 
 # Define possible fillers for possible roles
-initial = [bu, bhu]
+initial = [bo, bho]
 final = [d, dh,t,dhi,ti,di]
-suffix = [dha, ta]
+suffix = [syati]
+should_win = "bhotsyati"
 
 # Constraints
-MAX = 2
-DEP = -2
-VOICE = -2
-LAZY = -2
+MAX = 1
+DEP = -1
+VOICE = -1
+LICENSE = -1
 
 
 candidates = symbolic_repr.build_candidates(initial, final, suffix)
@@ -33,7 +53,7 @@ function update_constraints(winner::String, optimal::String, violations::Vector)
     global MAX
     global DEP
     global VOICE
-    global LAZY
+    global LICENSE
     #Update Constraints
     ## Find indices
     optViol_idx = findall(x -> x["candidate"] == optimal, violations)
@@ -44,8 +64,8 @@ function update_constraints(winner::String, optimal::String, violations::Vector)
     # Improve constraints
     optViol["MaxIO"] > winViol["MaxIO"] ? MAX -= .5 : MAX += .5
     optViol["Dep"] > winViol["Dep"] ? DEP += .5 : DEP -= .5
-    optViol["Lazy"] > winViol["Lazy"] ? LAZY += .5 : LAZY -= .5
     optViol["Voice"] > winViol["Voice"] ? VOICE += .5 : VOICE -= .5
+    optViol["License"] > winViol["License"] ? LICENSE += .5 : LICENSE -= .5
 end
 
 
@@ -62,7 +82,7 @@ for c in candidates
                       "MaxIO" => 0.0,
                       "Dep" => 0.0,
                       "Voice" => 0.0,
-                      "Lazy" => 0.0)
+                      "License" => 0.0)
 
     #maxIO
     maxio = MAX * (c.root_initial.act + c.root_final.act + c.suffix.act)
@@ -79,20 +99,13 @@ for c in candidates
         harm += VOICE
     end # voice violations
 
-    # Add lazyness violations
-    aspirations = 0
-    if c.root_initial.aspirated
-        aspirations += 1
-    end
-    if c.root_final.aspirated
-        aspirations += 1
-    end
-    if c.suffix.aspirated
-        aspirations += 1
-    end
-    if aspirations > 1
-        cand_viols["Lazy"] += LAZY
-        harm += LAZY
+    # Add License(lar) violations
+    if c.root_final.aspirated && !c.suffix.voiced
+        if c.root_final ∉ [dhi, ti, di]
+            cand_viols["License"] += LICENSE
+            #display("$(c) has License violations")
+            harm += LICENSE
+        end
     end
 
     # Add epenthesis violations
@@ -110,7 +123,7 @@ end # candidates loop
 winner, maxh = symbolic_repr.maxHarm(candidates)
 
 # Define optimal candidate
-optimal_index = findall(x -> x.repr == "buddha", candidates)
+optimal_index = findall(x -> x.repr == should_win, candidates)
 optimal = candidates[optimal_index][1]
 
 # case 1 : more than one winner:
@@ -148,14 +161,14 @@ end # while loop
 
 
 #display(candidates)
-open("results.txt", "w") do f
+open("results_$(should_win).txt", "w") do f
 for i in candidates
     println(f,i)
 end
 end
 
 # Violations
-open("violations.txt", "w") do f
+open("violations_$(should_win).txt", "w") do f
 for cand in violations
     println(f,"--------------------------------------------")
     for (key, value) in cand
@@ -167,9 +180,9 @@ end
 
 
 # Violations
-open("Constraints_weights.txt", "w") do f
+open("Constraints_weights_$(should_win).txt", "w") do f
 println(f, "MAX : $(MAX)")
 println(f, "DEP : $(DEP)")
-println(f, "Lazyness : $(LAZY)")
+println(f, "License : $(LICENSE)")
 println(f, "Voice Contrast : $(VOICE)")
 end

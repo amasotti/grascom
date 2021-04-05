@@ -152,3 +152,6 @@ scratch_book.py
 #example1.ipynb
 example2.ipynb
 inp3.csv
+
+# Julia files
+*.toml

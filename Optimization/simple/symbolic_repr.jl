@@ -72,16 +72,16 @@ end
 
 """Decrease gradient activations for wrong winners"""
 function decrease_activations(x::output)
-    x.root_initial.act > 0.05 ? x.root_initial.act -= 0.02 : nothing
-    x.root_final.act > 0.05 ? x.root_final.act -= 0.02 : nothing
-    x.suffix.act > 0.05 ? x.suffix.act -= 0.02 : nothing
+    (x.root_initial.act > 0.05 && x.root_initial.act < 1 ) ? x.root_initial.act -= 0.02 : nothing
+    (x.root_final.act > 0.05 && x.root_final.act < 1) ? x.root_final.act -= 0.02 : nothing
+    (x.suffix.act > 0.05 && x.suffix.act < 1) ? x.suffix.act -= 0.02 : nothing
 end
 
 """Increase activations for the winner"""
 function increase_activations(x::output)
-    x.root_initial.act += 0.02
-    x.root_final.act += 0.02
-    x.suffix.act += 0.02
+    x.root_initial.act < 1 ? x.root_initial.act += 0.02 : nothing
+    x.root_final.act < 1 ? x.root_final.act += 0.02 : nothing
+    x.suffix.act < 1 ? x.suffix.act += 0.02 : nothing
 end
 
 

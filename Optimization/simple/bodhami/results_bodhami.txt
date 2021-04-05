@@ -1,0 +1,6 @@
+bodami : harmony: 0.3999999999999999 (bo : 0.3, da : 0.4, mi : 1.0)
+bodhami : harmony: 1.0 (bo : 0.3, dha : 0.7, mi : 1.0)
+botami : harmony: 0.0 (bo : 0.3, ta : 0.7, mi : 1.0)
+bhodami : harmony: 0.0 (bho : 0.1, da : 0.4, mi : 1.0)
+bhodhami : harmony: 0.5999999999999996 (bho : 0.1, dha : 0.7, mi : 1.0)
+bhotami : harmony: -0.40000000000000036 (bho : 0.1, ta : 0.7, mi : 1.0)

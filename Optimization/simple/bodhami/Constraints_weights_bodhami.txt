@@ -1,0 +1,4 @@
+MAX : 1
+DEP : -1
+License : -1
+Voice Contrast : -1

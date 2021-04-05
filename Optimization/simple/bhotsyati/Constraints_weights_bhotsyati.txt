@@ -1,0 +1,4 @@
+MAX : 3
+DEP : -3
+License : -3
+Voice Contrast : -3

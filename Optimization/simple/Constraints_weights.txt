@@ -1,4 +1,0 @@
-MAX : 5.0
-DEP : -5.0
-Lazyness : -5.0
-Voice Contrast : -5.0

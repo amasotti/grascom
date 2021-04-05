@@ -22,6 +22,9 @@ At moment very simplistic positional roles were used. I'm thinking about impleme
 - `TPR_example` : How to represent symbolic structures using the Tensor Product Representation
 - `example` : GSC run on a toy-example (Sanskrit allomorphy: _bhud_ vs _budh_ aka Grassmann's Law)
 
+
+Optimal weights (for constraints) and activation values (for inputs) can be found using either mathematical Optimization or a simple learning algorithm (as suggested in E. Rosen (2019)). See the folder `Optimization` for a simple implementation.
+
 ---
 
 **disclaimer** : The project is a work in progress in a early phase and was created with the main goal to practice with the GSC framework and develop an intuition, how the GSC works.
